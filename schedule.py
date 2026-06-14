@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Print today's WC schedule with correct ET and PT kickoff times.
-Usage: python3 schedule.py
+Print WC schedule for today + next N days.
+Usage: python3 schedule.py [days_ahead]
+  days_ahead: how many additional days beyond today (default 2)
 """
+import sys
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
 
@@ -20,39 +22,71 @@ STATUS_LABELS = {
     "STATUS_FINAL": "Final",
 }
 
-def main():
-    r = requests.get(ESPN_SCOREBOARD, timeout=10)
-    r.raise_for_status()
-    events = r.json().get("events", [])
+def fetch_day(d: date) -> list:
+    date_str = d.strftime("%Y%m%d")
+    try:
+        r = requests.get(ESPN_SCOREBOARD, params={"dates": date_str}, timeout=10)
+        r.raise_for_status()
+        return r.json().get("events", [])
+    except Exception as ex:
+        print(f"  [fetch error for {date_str}: {ex}]")
+        return []
 
-    print(f"{'ID':<10} {'Match':<40} {'ET':>8} {'PT':>8} {'Status':<15} {'Score'}")
-    print("-" * 100)
-
+def print_day(events: list, label: str) -> None:
+    print(f"\n{'━' * 80}")
+    print(f"  {label}")
+    print(f"{'━' * 80}")
+    if not events:
+        print("  No fixtures found.")
+        return
+    print(f"  {'ID':<10} {'Match':<36} {'ET':>10} {'PT':>10}  {'Status':<16} Score")
+    print(f"  {'-'*10} {'-'*36} {'-'*10} {'-'*10}  {'-'*16} -----")
     for e in events:
         c = e["competitions"][0]
         status_name = c["status"]["type"]["name"]
         detail = c["status"]["type"].get("detail", "")
-        label = STATUS_LABELS.get(status_name, status_name)
+        label_s = STATUS_LABELS.get(status_name, status_name)
         if status_name not in ("STATUS_FULL_TIME", "STATUS_FINAL", "STATUS_SCHEDULED"):
-            label = f"{label} {detail}"
+            label_s = f"{label_s} {detail}".strip()
 
-        # Parse kickoff UTC
         kickoff_utc = datetime.fromisoformat(e["date"].replace("Z", "+00:00"))
         et_str = kickoff_utc.astimezone(ET).strftime("%-I:%M%p ET")
         pt_str = kickoff_utc.astimezone(PT).strftime("%-I:%M%p PT")
 
-        # Score
-        scores = {c2["team"]["displayName"]: c2.get("score", "-") for c2 in c.get("competitors", [])}
         home, away = None, None
+        scores = {}
         for c2 in c.get("competitors", []):
+            name = c2["team"]["displayName"]
+            scores[name] = c2.get("score", "-")
             if c2.get("homeAway") == "home":
-                home = c2["team"]["displayName"]
+                home = name
             else:
-                away = c2["team"]["displayName"]
-        score_str = f"{scores.get(home,'-')} - {scores.get(away,'-')}" if status_name not in ("STATUS_SCHEDULED",) else ""
+                away = name
 
         match_str = f"{home} vs {away}"
-        print(f"{e['id']:<10} {match_str:<40} {et_str:>8} {pt_str:>8} {label:<15} {score_str}")
+        score_str = (
+            f"{scores.get(home,'-')} - {scores.get(away,'-')}"
+            if status_name not in ("STATUS_SCHEDULED",)
+            else ""
+        )
+        print(f"  {e['id']:<10} {match_str:<36} {et_str:>10} {pt_str:>10}  {label_s:<16} {score_str}")
+
+def main() -> None:
+    days_ahead = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    today_utc = datetime.now(timezone.utc).date()
+
+    for offset in range(days_ahead + 1):
+        day = today_utc + timedelta(days=offset)
+        if offset == 0:
+            day_label = f"TODAY — {day.strftime('%A, %B %-d')}"
+        elif offset == 1:
+            day_label = f"TOMORROW — {day.strftime('%A, %B %-d')}"
+        else:
+            day_label = day.strftime("%A, %B %-d")
+        events = fetch_day(day)
+        print_day(events, day_label)
+
+    print()
 
 if __name__ == "__main__":
     main()
