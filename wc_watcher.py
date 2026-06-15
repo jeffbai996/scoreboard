@@ -2,11 +2,17 @@
 """
 Live WC match watcher — polls ESPN API, posts events to Discord thread.
 Usage: python3 wc_watcher.py <event_id> <discord_channel_id>
+
+Writes a live game notebook to /tmp/wc_notebook_<event_id>.json each poll,
+so external queries can read current match state without re-hitting the API.
+Notebook is deleted on FULL TIME.
 """
 import sys
 import time
+import json
 import requests
 import os
+from datetime import datetime, timezone
 
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
 ESPN_SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary"
@@ -15,7 +21,6 @@ BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
 POLL_INTERVAL = 15  # seconds
 
-# Keywords that signal a key commentary moment worth posting
 KEY_COMMENTARY_PHRASES = [
     "goal", "penalty", "red card", "yellow card", "offside", "var",
     "attempt saved", "close range", "header", "free kick", "great save",
@@ -35,6 +40,26 @@ TEAM_EMOJIS = {
     "portugal": "🇵🇹",
     "usa": "🇺🇸",
     "united states": "🇺🇸",
+    "sweden": "🇸🇪",
+    "tunisia": "🇹🇳",
+    "ivory coast": "🇨🇮",
+    "ecuador": "🇪🇨",
+    "mexico": "🇲🇽",
+    "south korea": "🇰🇷",
+    "australia": "🇦🇺",
+    "turkey": "🇹🇷",
+    "türkiye": "🇹🇷",
+    "curacao": "🇨🇼",
+    "curaçao": "🇨🇼",
+    "canada": "🇨🇦",
+    "switzerland": "🇨🇭",
+    "qatar": "🇶🇦",
+    "belgium": "🇧🇪",
+    "saudi arabia": "🇸🇦",
+    "uruguay": "🇺🇾",
+    "iran": "🇮🇷",
+    "senegal": "🇸🇳",
+    "norway": "🇳🇴",
 }
 
 def team_emoji(name: str) -> str:
@@ -68,14 +93,14 @@ def fetch_scoreboard(event_id: str) -> dict | None:
         print(f"Scoreboard fetch error: {ex}")
     return None
 
-def fetch_commentary(event_id: str) -> list:
+def fetch_summary(event_id: str) -> dict:
     try:
         r = requests.get(ESPN_SUMMARY, params={"event": event_id}, timeout=10)
         r.raise_for_status()
-        return r.json().get("commentary", [])
+        return r.json()
     except Exception as ex:
-        print(f"Commentary fetch error: {ex}")
-    return []
+        print(f"Summary fetch error: {ex}")
+    return {}
 
 def is_key_moment(text: str) -> bool:
     lower = text.lower()
@@ -103,6 +128,63 @@ def format_commentary(text: str, minute: str) -> str:
 def scoreline(scores: dict, home: str, away: str) -> str:
     return f"{home} {scores.get(home, 0)} – {scores.get(away, 0)} {away}"
 
+def write_notebook(event_id: str, notebook: dict) -> None:
+    path = f"/tmp/wc_notebook_{event_id}.json"
+    try:
+        with open(path, "w") as f:
+            json.dump(notebook, f, indent=2)
+    except Exception as ex:
+        print(f"Notebook write error: {ex}")
+
+def delete_notebook(event_id: str) -> None:
+    path = f"/tmp/wc_notebook_{event_id}.json"
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+def build_notebook(
+    event_id: str,
+    home: str,
+    away: str,
+    scores: dict,
+    clock: str,
+    status: str,
+    details: list,
+    commentary_log: list,
+    stats: dict,
+) -> dict:
+    goals = [
+        {
+            "minute": d.get("clock", {}).get("displayValue", "?"),
+            "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+            "team": d.get("team", {}).get("displayName", "?"),
+            "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
+        }
+        for d in details if d.get("scoringPlay")
+    ]
+    cards = [
+        {
+            "minute": d.get("clock", {}).get("displayValue", "?"),
+            "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+            "team": d.get("team", {}).get("displayName", "?"),
+            "type": ("red" if d.get("redCard") else "yellow"),
+        }
+        for d in details if d.get("redCard") or d.get("yellowCard")
+    ]
+    return {
+        "event_id": event_id,
+        "updated": datetime.now(timezone.utc).isoformat(),
+        "match": f"{home} vs {away}",
+        "score": {home: scores.get(home, 0), away: scores.get(away, 0)},
+        "clock": clock,
+        "status": status,
+        "goals": goals,
+        "cards": cards,
+        "stats": stats,
+        "key_commentary": commentary_log[-30:],  # last 30 key moments
+    }
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: wc_watcher.py <espn_event_id> <discord_channel_id>")
@@ -120,6 +202,7 @@ def main():
     home_name = ""
     away_name = ""
     team_id_map: dict = {}
+    commentary_log: list = []
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -154,11 +237,13 @@ def main():
                 post_discord(channel_id, f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
                 post_discord(channel_id, f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
+                delete_notebook(event_id)
                 break
             last_state = current_state
 
         # Key event details (goals/cards — always post these)
-        for detail in comp.get("details", []):
+        details = comp.get("details", [])
+        for detail in details:
             athletes = detail.get("athletesInvolved", [])
             player = athletes[0].get("displayName", "Unknown") if athletes else "Unknown"
             uid = (
@@ -184,8 +269,17 @@ def main():
             elif detail.get("yellowCard"):
                 post_discord(channel_id, f"🟨 Yellow card {d_clock} — {player} ({team_name})")
 
-        # Commentary — key moments
-        commentary = fetch_commentary(event_id)
+        # Commentary + stats
+        summary = fetch_summary(event_id)
+        commentary = summary.get("commentary", [])
+
+        # Extract stats if available
+        stats: dict = {}
+        for box in summary.get("boxscore", {}).get("teams", []):
+            tname = box.get("team", {}).get("displayName", "?")
+            stat_map = {s["name"]: s.get("displayValue", "?") for s in box.get("statistics", [])}
+            stats[tname] = stat_map
+
         for item in commentary:
             seq = item.get("sequence", -1)
             text = item.get("text", "")
@@ -194,15 +288,18 @@ def main():
             if uid in seen_commentary:
                 continue
             seen_commentary.add(uid)
-            if seq == 0:  # skip kickoff boilerplate on startup
+            if seq == 0:
                 continue
             if is_key_moment(text):
-                # Don't double-post goals already covered by details
-                if "goal" in text.lower() and any(
-                    text.lower().count(w) > 0 for w in ["opens the scoring", "into the net"]
-                ):
-                    pass  # still post — these are the narrative versions
+                commentary_log.append({"minute": minute, "text": text})
                 post_discord(channel_id, format_commentary(text, minute))
+
+        # Update notebook every poll
+        notebook = build_notebook(
+            event_id, home_name, away_name, scores, clock,
+            current_state, details, commentary_log, stats,
+        )
+        write_notebook(event_id, notebook)
 
         time.sleep(POLL_INTERVAL)
 
