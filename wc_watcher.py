@@ -157,28 +157,29 @@ def is_key_moment(text: str) -> bool:
 def format_commentary(text: str, minute: str) -> str:
     lower = text.lower()
     if "goal" in lower or "into the net" in lower or "opens the scoring" in lower:
-        return f"⚽ **[{minute}]** {text}"
+        emoji = "⚽"
     elif "red card" in lower:
-        return f"🟥 **[{minute}]** {text}"
+        emoji = "🟥"
     elif "yellow card" in lower:
-        return f"🟨 **[{minute}]** {text}"
+        emoji = "🟨"
     elif "penalty" in lower or "var" in lower:
-        return f"🎯 **[{minute}]** {text}"
+        emoji = "🎯"
     elif "attempt saved" in lower or "great save" in lower:
-        return f"🧤 **[{minute}]** {text}"
+        emoji = "🧤"
     elif "substitut" in lower:
-        return f"🔄 **[{minute}]** {text}"
+        emoji = "🔄"
     elif "injury" in lower:
-        return f"🚑 **[{minute}]** {text}"
+        emoji = "🚑"
     else:
-        return f"📋 **[{minute}]** {text}"
+        emoji = "📋"
+    return f"{emoji} [{minute}] {text}"
 
 def scoreline(scores: dict, home: str, away: str) -> str:
     return f"{home} {scores.get(home, 0)} – {scores.get(away, 0)} {away}"
 
 def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
-    goals: list, cards: list, stats: dict,
+    goals: list, cards: list, stats: dict, recent: list | None = None,
 ) -> str:
     home_e, away_e = team_emoji(home), team_emoji(away)
     status_label = {
@@ -214,6 +215,11 @@ def render_scoreboard(
             f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
         lines.append(f"Possession: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
+        lines.append("")
+    if recent:
+        lines.append("Live")
+        for r in recent:
+            lines.append(r)
     return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
@@ -289,7 +295,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v4 — persistent scoreboard + goals/cards (permanent) + full-fidelity commentary (ephemeral ~{EPHEMERAL_LIFESPAN}s). Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v5 — persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
@@ -308,10 +314,11 @@ def main():
     # so back that case with a flat timer — repost every ~2 min regardless.
     polls_since_repost = 0
     REPOST_EVERY_POLLS = max(1, round(120 / POLL_INTERVAL))
-    # Full-fidelity commentary (subs, injuries, dangerous chances, etc) —
-    # Jeff 2026-06-17: post everything, but ephemeral (~30s) so it doesn't
-    # permanently clutter the channel like goals/cards do. (msg_id, post_time) pairs.
-    ephemeral_msgs: list = []
+    # Full-fidelity commentary (subs, injuries, dangerous chances, etc) — Jeff
+    # 2026-06-17: show everything, but inside the scoreboard's "Live" section
+    # instead of separate posts, so it updates silently via the same edit and
+    # doesn't trigger notifications. (text, post_time) pairs, pruned by age.
+    recent_commentary: list = []
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -446,22 +453,16 @@ def main():
                 if "goal" in lower or "red card" in lower or "yellow card" in lower:
                     continue  # already posted permanently above
                 # Jeff 2026-06-17: full fidelity for everything else (subs,
-                # injuries, dangerous chances, saves, etc) — but ephemeral,
-                # auto-deleted after EPHEMERAL_LIFESPAN so it doesn't clutter
-                # the channel forever like goals/cards do.
-                msg_id = post_discord(channel_id, format_commentary(text, minute))
-                if msg_id:
-                    ephemeral_msgs.append((msg_id, time.monotonic()))
+                # injuries, dangerous chances, saves, etc) — shown in the
+                # scoreboard's "Live" section (edited, no notification) and
+                # aged out after EPHEMERAL_LIFESPAN instead of separate posts.
+                recent_commentary.append((format_commentary(text, minute), time.monotonic()))
 
-        # Sweep expired ephemeral commentary posts
+        # Prune aged-out commentary lines
         now = time.monotonic()
-        still_alive = []
-        for msg_id, posted_at in ephemeral_msgs:
-            if now - posted_at >= EPHEMERAL_LIFESPAN:
-                delete_discord(channel_id, msg_id)
-            else:
-                still_alive.append((msg_id, posted_at))
-        ephemeral_msgs = still_alive
+        recent_commentary = [
+            (txt, t) for txt, t in recent_commentary if now - t < EPHEMERAL_LIFESPAN
+        ]
 
         # Persistent scoreboard — normally just edited in place every poll
         # (same approach as the agent view panel) so it doesn't spam the
@@ -473,6 +474,7 @@ def main():
         board_text = render_scoreboard(
             home_name, away_name, scores, clock, current_state,
             goals_list, cards_list, stats,
+            [txt for txt, _ in recent_commentary],
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
