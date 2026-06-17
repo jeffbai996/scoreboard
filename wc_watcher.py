@@ -136,12 +136,19 @@ def write_notebook(event_id: str, notebook: dict) -> None:
     except Exception as ex:
         print(f"Notebook write error: {ex}")
 
-def delete_notebook(event_id: str) -> None:
-    path = f"/tmp/wc_notebook_{event_id}.json"
+def archive_notebook(event_id: str) -> None:
+    """Move the live notebook to a persistent archive dir instead of deleting it,
+    so completed-match notes survive past full time and stay queryable.
+    Jeff 2026-06-17: keep these for the WC duration, delete the whole completed/
+    dir once the tournament ends — not meant to be kept forever."""
+    src = f"/tmp/wc_notebook_{event_id}.json"
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "completed")
+    os.makedirs(archive_dir, exist_ok=True)
+    dst = os.path.join(archive_dir, f"wc_notebook_{event_id}.json")
     try:
-        os.remove(path)
-    except Exception:
-        pass
+        os.replace(src, dst)
+    except Exception as ex:
+        print(f"Notebook archive error: {ex}")
 
 def build_notebook(
     event_id: str,
@@ -237,7 +244,7 @@ def main():
                 post_discord(channel_id, f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
                 post_discord(channel_id, f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
-                delete_notebook(event_id)
+                archive_notebook(event_id)
                 break
             last_state = current_state
 
