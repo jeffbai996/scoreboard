@@ -483,14 +483,14 @@ def main():
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
-            if scoreboard_msg_id:
-                pin_discord(channel_id, scoreboard_msg_id)
             polls_since_repost = 0
         elif scoreboard_buried_by > 0 or polls_since_repost >= REPOST_EVERY_POLLS:
+            # Pinning used to handle "find it again," but each pin fires a
+            # "X pinned a message" system notice every repost — Jeff 2026-06-17:
+            # too noisy. Delete+repost alone already resurfaces it at the
+            # bottom of the channel, which is the part that actually matters.
             delete_discord(channel_id, scoreboard_msg_id)
             scoreboard_msg_id = post_discord(channel_id, board_text)
-            if scoreboard_msg_id:
-                pin_discord(channel_id, scoreboard_msg_id)
             scoreboard_buried_by = 0
             polls_since_repost = 0
         else:
