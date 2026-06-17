@@ -20,6 +20,7 @@ DISCORD_API = "https://discord.com/api/v10"
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
 POLL_INTERVAL = 5  # seconds
+EPHEMERAL_LIFESPAN = 30  # seconds — how long full-fidelity commentary posts stay up
 
 KEY_COMMENTARY_PHRASES = [
     "goal", "penalty", "red card", "yellow card", "offside", "var",
@@ -288,7 +289,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v3 — persistent scoreboard + goals/cards/missed pens/injuries. Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v4 — persistent scoreboard + goals/cards (permanent) + full-fidelity commentary (ephemeral ~{EPHEMERAL_LIFESPAN}s). Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
@@ -307,6 +308,10 @@ def main():
     # so back that case with a flat timer — repost every ~2 min regardless.
     polls_since_repost = 0
     REPOST_EVERY_POLLS = max(1, round(120 / POLL_INTERVAL))
+    # Full-fidelity commentary (subs, injuries, dangerous chances, etc) —
+    # Jeff 2026-06-17: post everything, but ephemeral (~30s) so it doesn't
+    # permanently clutter the channel like goals/cards do. (msg_id, post_time) pairs.
+    ephemeral_msgs: list = []
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -434,20 +439,29 @@ def main():
             if seq == 0:
                 continue
             if is_key_moment(text):
-                # Goals/cards are already posted from scoreboard details above —
-                # log commentary for the notebook only, never post it to Discord.
-                # Jeff 2026-06-16: cut the offside/free-kick noise, goals only.
-                # Jeff 2026-06-17: missed penalties + injuries are the exception —
-                # no structured event type for these, so post straight from
-                # commentary text instead of staying silent like other noise.
+                # Goals/cards already get permanent posts from scoreboard
+                # details above; log everything to the notebook either way.
                 commentary_log.append({"minute": minute, "text": text})
                 lower = text.lower()
-                if "penalty" in lower and ("miss" in lower or "saved" in lower):
-                    post_discord(channel_id, f"🎯 **PENALTY MISSED** {minute} — {text}")
-                    scoreboard_buried_by += 1
-                elif "injury" in lower or "stretcher" in lower:
-                    post_discord(channel_id, f"🚑 **INJURY** {minute} — {text}")
-                    scoreboard_buried_by += 1
+                if "goal" in lower or "red card" in lower or "yellow card" in lower:
+                    continue  # already posted permanently above
+                # Jeff 2026-06-17: full fidelity for everything else (subs,
+                # injuries, dangerous chances, saves, etc) — but ephemeral,
+                # auto-deleted after EPHEMERAL_LIFESPAN so it doesn't clutter
+                # the channel forever like goals/cards do.
+                msg_id = post_discord(channel_id, format_commentary(text, minute))
+                if msg_id:
+                    ephemeral_msgs.append((msg_id, time.monotonic()))
+
+        # Sweep expired ephemeral commentary posts
+        now = time.monotonic()
+        still_alive = []
+        for msg_id, posted_at in ephemeral_msgs:
+            if now - posted_at >= EPHEMERAL_LIFESPAN:
+                delete_discord(channel_id, msg_id)
+            else:
+                still_alive.append((msg_id, posted_at))
+        ephemeral_msgs = still_alive
 
         # Persistent scoreboard — normally just edited in place every poll
         # (same approach as the agent view panel) so it doesn't spam the
