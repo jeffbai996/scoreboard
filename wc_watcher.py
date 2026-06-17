@@ -19,7 +19,7 @@ ESPN_SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/
 DISCORD_API = "https://discord.com/api/v10"
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
-POLL_INTERVAL = 15  # seconds
+POLL_INTERVAL = 5  # seconds
 
 KEY_COMMENTARY_PHRASES = [
     "goal", "penalty", "red card", "yellow card", "offside", "var",
