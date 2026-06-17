@@ -262,8 +262,19 @@ def main():
             if detail.get("scoringPlay"):
                 own = " (OWN GOAL)" if detail.get("ownGoal") else ""
                 pk = " (pen.)" if detail.get("penaltyKick") else ""
+                # ESPN's competitors[].score lags the details feed by a poll or
+                # two — the goal can land here before the score field ticks up,
+                # so a goal posted from `scores` directly can show the pre-goal
+                # tally. Count goals seen so far in `details` instead, which is
+                # consistent with what just triggered this announcement.
+                goals_so_far = {home_name: 0, away_name: 0}
+                for d in details:
+                    if d.get("scoringPlay"):
+                        t = team_id_map.get(d.get("team", {}).get("id", ""), "")
+                        if t in goals_so_far:
+                            goals_so_far[t] += 1
                 post_discord(channel_id,
-                    f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(scores, home_name, away_name)}")
+                    f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(goals_so_far, home_name, away_name)}")
             elif detail.get("redCard"):
                 post_discord(channel_id, f"🟥 **RED CARD** {d_clock} — {player} ({team_name})")
             elif detail.get("yellowCard"):
