@@ -186,6 +186,7 @@ def render_scoreboard(
         "STATUS_FIRST_HALF": "1st half",
         "STATUS_HALFTIME": "Half time",
         "STATUS_SECOND_HALF": "2nd half",
+        "STATUS_IN_PROGRESS": "In progress",
         "STATUS_FULL_TIME": "Full time",
         "STATUS_FINAL": "Full time",
     }.get(status, status)
