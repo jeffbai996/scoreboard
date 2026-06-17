@@ -190,9 +190,13 @@ def render_scoreboard(
         "STATUS_FULL_TIME": "Full time",
         "STATUS_FINAL": "Full time",
     }.get(status, status)
+    # "SECOND_HALF"/"FIRST_HALF" both contain "HALF", so a substring check
+    # against `status` suppressed the clock during normal play too — only
+    # actually suppress it for the dead-time/end states.
+    no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
     lines = [
         f"{home_e} {home} {scores.get(home, 0)} - {scores.get(away, 0)} {away} {away_e}",
-        f"{status_label}{f' ({clock})' if clock and 'HALF' not in status and 'FINAL' not in status else ''}",
+        f"{status_label}{f' ({clock})' if clock and status not in no_clock_states else ''}",
         "",
     ]
     if goals:
