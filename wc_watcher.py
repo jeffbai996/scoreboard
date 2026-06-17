@@ -291,16 +291,10 @@ def main():
             if seq == 0:
                 continue
             if is_key_moment(text):
-                lower = text.lower()
-                # Skip goal/card commentary already covered by scoreboard details
-                is_goal_text = "goal!" in lower or "into the net" in lower or "opens the scoring" in lower
-                is_card_text = "is shown the yellow card" in lower or "is shown a red card" in lower
-                if is_goal_text or is_card_text:
-                    # Still log for the notebook, just don't double-post to Discord
-                    commentary_log.append({"minute": minute, "text": text})
-                    continue
+                # Goals/cards are already posted from scoreboard details above —
+                # log commentary for the notebook only, never post it to Discord.
+                # Jeff 2026-06-16: cut the offside/free-kick noise, goals only.
                 commentary_log.append({"minute": minute, "text": text})
-                post_discord(channel_id, format_commentary(text, minute))
 
         # Update notebook every poll
         notebook = build_notebook(
