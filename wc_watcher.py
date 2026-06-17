@@ -69,10 +69,12 @@ def team_emoji(name: str) -> str:
             return v
     return "⚽"
 
-def post_discord(channel_id: str, text: str) -> None:
+def post_discord(channel_id: str, text: str) -> str | None:
+    """Post a message, returning its message_id (None if posting failed
+    or no bot token is configured) so callers can later edit it in place."""
     if not BOT_TOKEN:
         print(f"[DISCORD] {text}")
-        return
+        return None
     r = requests.post(
         f"{DISCORD_API}/channels/{channel_id}/messages",
         headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
@@ -81,6 +83,23 @@ def post_discord(channel_id: str, text: str) -> None:
     )
     if r.status_code not in (200, 201):
         print(f"Discord post failed: {r.status_code} {r.text[:200]}")
+        return None
+    return r.json().get("id")
+
+def edit_discord(channel_id: str, message_id: str, text: str) -> bool:
+    if not BOT_TOKEN:
+        print(f"[DISCORD EDIT {message_id}] {text}")
+        return True
+    r = requests.patch(
+        f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+        headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
+        json={"content": text},
+        timeout=10,
+    )
+    if r.status_code not in (200, 201):
+        print(f"Discord edit failed: {r.status_code} {r.text[:200]}")
+        return False
+    return True
 
 def fetch_scoreboard(event_id: str) -> dict | None:
     try:
@@ -127,6 +146,46 @@ def format_commentary(text: str, minute: str) -> str:
 
 def scoreline(scores: dict, home: str, away: str) -> str:
     return f"{home} {scores.get(home, 0)} – {scores.get(away, 0)} {away}"
+
+def render_scoreboard(
+    home: str, away: str, scores: dict, clock: str, status: str,
+    goals: list, cards: list, stats: dict,
+) -> str:
+    home_e, away_e = team_emoji(home), team_emoji(away)
+    status_label = {
+        "STATUS_FIRST_HALF": "1st half",
+        "STATUS_HALFTIME": "Half time",
+        "STATUS_SECOND_HALF": "2nd half",
+        "STATUS_FULL_TIME": "Full time",
+        "STATUS_FINAL": "Full time",
+    }.get(status, status)
+    lines = [
+        f"**{home_e} {home} {scores.get(home, 0)} – {scores.get(away, 0)} {away} {away_e}**",
+        f"{status_label}{f' ({clock})' if clock and 'HALF' not in status and 'FINAL' not in status else ''}",
+        "",
+    ]
+    if goals:
+        lines.append("**Goals**")
+        for g in goals:
+            tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
+            lines.append(f"⚽ {g['minute']} {g['player']} ({g['team']}){tag}")
+        lines.append("")
+    if cards:
+        lines.append("**Cards**")
+        for c in cards:
+            emoji = "🟥" if c["type"] == "red" else "🟨"
+            lines.append(f"{emoji} {c['minute']} {c['player']} ({c['team']})")
+        lines.append("")
+    if stats:
+        h_stats = stats.get(home, {})
+        a_stats = stats.get(away, {})
+        lines.append("**Shots (on target)**")
+        lines.append(
+            f"{home}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
+            f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
+        )
+        lines.append(f"Possession: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
+    return "\n".join(lines)
 
 def write_notebook(event_id: str, notebook: dict) -> None:
     path = f"/tmp/wc_notebook_{event_id}.json"
@@ -201,7 +260,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v2 — key moments + goals + cards + subs. Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v3 — persistent scoreboard + goals/cards/missed pens/injuries. Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
@@ -210,6 +269,7 @@ def main():
     away_name = ""
     team_id_map: dict = {}
     commentary_log: list = []
+    scoreboard_msg_id: str | None = None
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -238,18 +298,42 @@ def main():
         for c in comp.get("competitors", []):
             scores[c["team"]["displayName"]] = int(c.get("score", 0))
 
+        # Key event details (goals/cards — always post these)
+        details = comp.get("details", [])
+        goals_list = [
+            {
+                "minute": d.get("clock", {}).get("displayValue", "?"),
+                "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+                "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
+                "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
+            }
+            for d in details if d.get("scoringPlay")
+        ]
+        cards_list = [
+            {
+                "minute": d.get("clock", {}).get("displayValue", "?"),
+                "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+                "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
+                "type": ("red" if d.get("redCard") else "yellow"),
+            }
+            for d in details if d.get("redCard") or d.get("yellowCard")
+        ]
+
         # State transitions
         if current_state != last_state:
             if current_state == "STATUS_HALFTIME":
                 post_discord(channel_id, f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
                 post_discord(channel_id, f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
+                if scoreboard_msg_id:
+                    final_board = render_scoreboard(
+                        home_name, away_name, scores, clock, current_state,
+                        goals_list, cards_list, {},
+                    )
+                    edit_discord(channel_id, scoreboard_msg_id, final_board)
                 archive_notebook(event_id)
                 break
             last_state = current_state
-
-        # Key event details (goals/cards — always post these)
-        details = comp.get("details", [])
         for detail in details:
             athletes = detail.get("athletesInvolved", [])
             player = athletes[0].get("displayName", "Unknown") if athletes else "Unknown"
@@ -312,7 +396,26 @@ def main():
                 # Goals/cards are already posted from scoreboard details above —
                 # log commentary for the notebook only, never post it to Discord.
                 # Jeff 2026-06-16: cut the offside/free-kick noise, goals only.
+                # Jeff 2026-06-17: missed penalties + injuries are the exception —
+                # no structured event type for these, so post straight from
+                # commentary text instead of staying silent like other noise.
                 commentary_log.append({"minute": minute, "text": text})
+                lower = text.lower()
+                if "penalty" in lower and ("miss" in lower or "saved" in lower):
+                    post_discord(channel_id, f"🎯 **PENALTY MISSED** {minute} — {text}")
+                elif "injury" in lower or "stretcher" in lower:
+                    post_discord(channel_id, f"🚑 **INJURY** {minute} — {text}")
+
+        # Persistent scoreboard — one message, edited in place every poll
+        # instead of reposting (same approach as the agent view panel).
+        board_text = render_scoreboard(
+            home_name, away_name, scores, clock, current_state,
+            goals_list, cards_list, stats,
+        )
+        if scoreboard_msg_id is None:
+            scoreboard_msg_id = post_discord(channel_id, board_text)
+        else:
+            edit_discord(channel_id, scoreboard_msg_id, board_text)
 
         # Update notebook every poll
         notebook = build_notebook(
