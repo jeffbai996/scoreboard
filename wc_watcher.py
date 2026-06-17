@@ -116,6 +116,19 @@ def pin_discord(channel_id: str, message_id: str) -> bool:
         return False
     return True
 
+def delete_discord(channel_id: str, message_id: str) -> bool:
+    if not BOT_TOKEN:
+        return True
+    r = requests.delete(
+        f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+        headers={"Authorization": f"Bot {BOT_TOKEN}"},
+        timeout=10,
+    )
+    if r.status_code not in (200, 204):
+        print(f"Discord delete failed: {r.status_code} {r.text[:200]}")
+        return False
+    return True
+
 def fetch_scoreboard(event_id: str) -> dict | None:
     try:
         r = requests.get(ESPN_SCOREBOARD, timeout=10)
@@ -285,6 +298,15 @@ def main():
     team_id_map: dict = {}
     commentary_log: list = []
     scoreboard_msg_id: str | None = None
+    # Bumped every time something else gets posted to the channel — if it's
+    # nonzero when we reach the scoreboard step, the old scoreboard message
+    # is now buried under newer messages, so repost fresh instead of editing
+    # in place (an edit never bumps a message back into view).
+    scoreboard_buried_by = 0
+    # The watcher can't see other people's chat messages burying the board,
+    # so back that case with a flat timer — repost every ~2 min regardless.
+    polls_since_repost = 0
+    REPOST_EVERY_POLLS = max(1, round(120 / POLL_INTERVAL))
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -338,6 +360,7 @@ def main():
         if current_state != last_state:
             if current_state == "STATUS_HALFTIME":
                 post_discord(channel_id, f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                scoreboard_buried_by += 1
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
                 post_discord(channel_id, f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
                 if scoreboard_msg_id:
@@ -381,10 +404,13 @@ def main():
                             goals_so_far[t] += 1
                 post_discord(channel_id,
                     f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(goals_so_far, home_name, away_name)}")
+                scoreboard_buried_by += 1
             elif detail.get("redCard"):
                 post_discord(channel_id, f"🟥 **RED CARD** {d_clock} — {player} ({team_name})")
+                scoreboard_buried_by += 1
             elif detail.get("yellowCard"):
                 post_discord(channel_id, f"🟨 Yellow card {d_clock} — {player} ({team_name})")
+                scoreboard_buried_by += 1
 
         # Commentary + stats
         summary = fetch_summary(event_id)
@@ -418,11 +444,18 @@ def main():
                 lower = text.lower()
                 if "penalty" in lower and ("miss" in lower or "saved" in lower):
                     post_discord(channel_id, f"🎯 **PENALTY MISSED** {minute} — {text}")
+                    scoreboard_buried_by += 1
                 elif "injury" in lower or "stretcher" in lower:
                     post_discord(channel_id, f"🚑 **INJURY** {minute} — {text}")
+                    scoreboard_buried_by += 1
 
-        # Persistent scoreboard — one message, edited in place every poll
-        # instead of reposting (same approach as the agent view panel).
+        # Persistent scoreboard — normally just edited in place every poll
+        # (same approach as the agent view panel) so it doesn't spam the
+        # channel. But an edit never bumps a message back into view, so if
+        # something else just posted (goal/card/etc, tracked above) or the
+        # repost timer's elapsed (covers plain chat burying it), delete the
+        # old one and post a fresh copy so it actually resurfaces.
+        polls_since_repost += 1
         board_text = render_scoreboard(
             home_name, away_name, scores, clock, current_state,
             goals_list, cards_list, stats,
@@ -431,6 +464,14 @@ def main():
             scoreboard_msg_id = post_discord(channel_id, board_text)
             if scoreboard_msg_id:
                 pin_discord(channel_id, scoreboard_msg_id)
+            polls_since_repost = 0
+        elif scoreboard_buried_by > 0 or polls_since_repost >= REPOST_EVERY_POLLS:
+            delete_discord(channel_id, scoreboard_msg_id)
+            scoreboard_msg_id = post_discord(channel_id, board_text)
+            if scoreboard_msg_id:
+                pin_discord(channel_id, scoreboard_msg_id)
+            scoreboard_buried_by = 0
+            polls_since_repost = 0
         else:
             edit_discord(channel_id, scoreboard_msg_id, board_text)
 
