@@ -101,6 +101,21 @@ def edit_discord(channel_id: str, message_id: str, text: str) -> bool:
         return False
     return True
 
+def pin_discord(channel_id: str, message_id: str) -> bool:
+    """Pin the scoreboard message so it stays reachable (Discord's pin tray)
+    even though edits never bump it to the bottom of a busy channel."""
+    if not BOT_TOKEN:
+        return True
+    r = requests.put(
+        f"{DISCORD_API}/channels/{channel_id}/pins/{message_id}",
+        headers={"Authorization": f"Bot {BOT_TOKEN}"},
+        timeout=10,
+    )
+    if r.status_code not in (200, 204):
+        print(f"Discord pin failed: {r.status_code} {r.text[:200]}")
+        return False
+    return True
+
 def fetch_scoreboard(event_id: str) -> dict | None:
     try:
         r = requests.get(ESPN_SCOREBOARD, timeout=10)
@@ -160,18 +175,18 @@ def render_scoreboard(
         "STATUS_FINAL": "Full time",
     }.get(status, status)
     lines = [
-        f"**{home_e} {home} {scores.get(home, 0)} – {scores.get(away, 0)} {away} {away_e}**",
+        f"{home_e} {home} {scores.get(home, 0)} - {scores.get(away, 0)} {away} {away_e}",
         f"{status_label}{f' ({clock})' if clock and 'HALF' not in status and 'FINAL' not in status else ''}",
         "",
     ]
     if goals:
-        lines.append("**Goals**")
+        lines.append("Goals")
         for g in goals:
             tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
             lines.append(f"⚽ {g['minute']} {g['player']} ({g['team']}){tag}")
         lines.append("")
     if cards:
-        lines.append("**Cards**")
+        lines.append("Cards")
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
             lines.append(f"{emoji} {c['minute']} {c['player']} ({c['team']})")
@@ -179,13 +194,13 @@ def render_scoreboard(
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
-        lines.append("**Shots (on target)**")
+        lines.append("Shots (on target)")
         lines.append(
             f"{home}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
             f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
         lines.append(f"Possession: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
-    return "\n".join(lines)
+    return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
     path = f"/tmp/wc_notebook_{event_id}.json"
@@ -414,6 +429,8 @@ def main():
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
+            if scoreboard_msg_id:
+                pin_discord(channel_id, scoreboard_msg_id)
         else:
             edit_discord(channel_id, scoreboard_msg_id, board_text)
 
