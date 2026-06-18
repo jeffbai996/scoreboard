@@ -244,41 +244,50 @@ def format_commentary(text: str, minute: str) -> str:
 def scoreline(scores: dict, home: str, away: str) -> str:
     return f"{home} {scores.get(home, 0)} – {scores.get(away, 0)} {away}"
 
-def render_scoreboard(
+_STATUS_LABELS = {
+    "STATUS_FIRST_HALF": ("1st half", "上半场"),
+    "STATUS_HALFTIME": ("Half time", "半场休息"),
+    "STATUS_SECOND_HALF": ("2nd half", "下半场"),
+    "STATUS_IN_PROGRESS": ("In progress", "进行中"),
+    "STATUS_FULL_TIME": ("Full time", "全场结束"),
+    "STATUS_FINAL": ("Full time", "全场结束"),
+    "STATUS_SCHEDULED": ("Scheduled", "未开始"),
+}
+
+def _render_board_lines(
     home: str, away: str, scores: dict, clock: str, status: str,
-    goals: list, cards: list, stats: dict, recent: list | None = None,
-    var_review: bool = False,
-) -> str:
+    goals: list, cards: list, stats: dict, recent: list | None,
+    var_review: bool, lang: int,
+) -> list[str]:
+    """lang: 0 = English, 1 = Chinese. Labels split per Jeff 2026-06-17:
+    one full code block per language rather than bilingual inline labels."""
     home_e, away_e = team_emoji(home), team_emoji(away)
-    status_label = {
-        "STATUS_FIRST_HALF": "1st half 上半场",
-        "STATUS_HALFTIME": "Half time 半场休息",
-        "STATUS_SECOND_HALF": "2nd half 下半场",
-        "STATUS_IN_PROGRESS": "In progress 进行中",
-        "STATUS_FULL_TIME": "Full time 全场结束",
-        "STATUS_FINAL": "Full time 全场结束",
-        "STATUS_SCHEDULED": "Scheduled 未开始",
-    }.get(status, status)
-    # "SECOND_HALF"/"FIRST_HALF" both contain "HALF", so a substring check
-    # against `status` suppressed the clock during normal play too — only
-    # actually suppress it for the dead-time/end states.
+    status_label = _STATUS_LABELS.get(status, (status, status))[lang]
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
+    headers = {
+        "var": ("⏳ VAR Review in progress", "⏳ VAR 审查中"),
+        "goals": ("Goals", "进球"),
+        "cards": ("Cards", "红黄牌"),
+        "shots": ("Shots (on target)", "射门（射正）"),
+        "poss": ("Possession", "控球"),
+        "live": ("Live", "实时"),
+    }
     lines = [
         f"{home_e} {home} {scores.get(home, 0)} - {scores.get(away, 0)} {away} {away_e}",
         f"{status_label}{f' ({clock})' if clock and status not in no_clock_states else ''}",
         "",
     ]
     if var_review:
-        lines.append("⏳ VAR Review in progress VAR 审查中")
+        lines.append(headers["var"][lang])
         lines.append("")
     if goals:
-        lines.append("Goals 进球")
+        lines.append(headers["goals"][lang])
         for g in goals:
             tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
             lines.append(f"⚽ {g['minute']} {g['player']} ({g['team']}){tag}")
         lines.append("")
     if cards:
-        lines.append("Cards 红黄牌")
+        lines.append(headers["cards"][lang])
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
             lines.append(f"{emoji} {c['minute']} {c['player']} ({c['team']})")
@@ -286,18 +295,30 @@ def render_scoreboard(
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
-        lines.append("Shots (on target) 射门（射正）")
+        lines.append(headers["shots"][lang])
         lines.append(
             f"{home}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
             f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
-        lines.append(f"Possession 控球: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
+        lines.append(f"{headers['poss'][lang]}: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
         lines.append("")
     if recent:
-        lines.append("Live 实时")
+        lines.append(headers["live"][lang])
         for r in recent:
             lines.append(r)
-    return "```\n" + "\n".join(lines) + "\n```"
+    return lines
+
+def render_scoreboard(
+    home: str, away: str, scores: dict, clock: str, status: str,
+    goals: list, cards: list, stats: dict, recent: list | None = None,
+    var_review: bool = False,
+) -> str:
+    en = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang=0)
+    cn = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang=1)
+    return (
+        "```\n" + "\n".join(en) + "\n```"
+        + "\n```\n" + "\n".join(cn) + "\n```"
+    )
 
 def write_notebook(event_id: str, notebook: dict) -> None:
     path = f"/tmp/wc_notebook_{event_id}.json"
