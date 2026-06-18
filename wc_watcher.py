@@ -513,12 +513,16 @@ def build_notebook(
     details: list,
     commentary_log: list,
     stats: dict,
+    team_id_map: dict,
 ) -> dict:
+    # The scoreboard endpoint's detail entries only carry team.id, not
+    # team.displayName -- needs the id->name map built from competitors,
+    # same as the other two goal/card builders in the poll loop use.
     goals = [
         {
             "minute": d.get("clock", {}).get("displayValue", "?"),
             "player": _scorer_name(d),
-            "team": d.get("team", {}).get("displayName", "?"),
+            "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
             "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
         }
         for d in details if d.get("scoringPlay")
@@ -527,7 +531,7 @@ def build_notebook(
         {
             "minute": d.get("clock", {}).get("displayValue", "?"),
             "player": _scorer_name(d),
-            "team": d.get("team", {}).get("displayName", "?"),
+            "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
             "type": ("red" if d.get("redCard") else "yellow"),
         }
         for d in details if d.get("redCard") or d.get("yellowCard")
@@ -784,7 +788,7 @@ def main():
         # Update notebook every poll
         notebook = build_notebook(
             event_id, home_name, away_name, scores, clock,
-            current_state, details, commentary_log, stats,
+            current_state, details, commentary_log, stats, team_id_map,
         )
         write_notebook(event_id, notebook)
 
