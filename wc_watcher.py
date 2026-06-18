@@ -163,24 +163,62 @@ def format_clock(clock_secs: float | None) -> str:
     total = int(clock_secs)
     return f"{total // 60:02d}:{total % 60:02d}"
 
+# ESPN's position.abbreviation comes back as one of ~15 granular tags
+# (CD-L, CM-R, AM, LB, ...) — too fine-grained to be readable at a glance
+# for someone who doesn't already know soccer positions. Bucket down to
+# the 4 lines a noob actually wants, ordered back-to-front.
+POSITION_LINES = [
+    ("G", "GK", "门将"),
+    ("D", "DEF", "后卫"),
+    ("M", "MID", "中场"),
+    ("F", "FWD", "前锋"),
+]
+
+def _position_line(name: str) -> tuple[str, str] | None:
+    # ESPN's position.name is a free-text label ("Center Left Defender",
+    # "Left Back", "Attacking Midfielder Left", ...) — back/wing-back read
+    # as defenders, attacking-mid reads as midfielder, so keyword match
+    # rather than trusting any fixed prefix (abbreviations aren't
+    # consistently prefixed: "LB"/"RB" are backs, not "L"/"R" anything).
+    if not name:
+        return None
+    lower = name.lower()
+    if "goalkeeper" in lower:
+        return ("GK", "门将")
+    if "defender" in lower or "back" in lower:
+        return ("DEF", "后卫")
+    if "midfielder" in lower:
+        return ("MID", "中场")
+    if "forward" in lower:
+        return ("FWD", "前锋")
+    return None
+
 def format_lineups(summary: dict, home: str, away: str) -> str | None:
     rosters = summary.get("rosters", [])
     if not rosters:
         return None
-    lines = ["Lineups"]
+    lines = ["Lineups 首发阵容"]
     for r in rosters:
         team_name = r.get("team", {}).get("displayName", "?")
         formation = r.get("formation", "")
-        starters = [
-            p["athlete"].get("shortName", p["athlete"].get("displayName", "?"))
-            for p in r.get("roster", [])
-            if p.get("starter")
-        ]
+        starters = sorted(
+            (p for p in r.get("roster", []) if p.get("starter")),
+            key=lambda p: int(p.get("formationPlace") or 0),
+        )
         if not starters:
             continue
         header = f"{team_name}" + (f" ({formation})" if formation else "")
         lines.append(header)
-        lines.append(", ".join(starters))
+        grouped: dict[str, list[str]] = {}
+        for p in starters:
+            name = p["athlete"].get("shortName", p["athlete"].get("displayName", "?"))
+            bucket = _position_line(p.get("position", {}).get("name", ""))
+            en, cn = bucket if bucket else ("?", "?")
+            grouped.setdefault(f"{en} {cn}", []).append(name)
+        for _, en, cn in POSITION_LINES:
+            key = f"{en} {cn}"
+            if key in grouped:
+                lines.append(f"  {key}: {', '.join(grouped[key])}")
     return "\n".join(lines) if len(lines) > 1 else None
 
 def format_commentary(text: str, minute: str) -> str:
@@ -213,12 +251,13 @@ def render_scoreboard(
 ) -> str:
     home_e, away_e = team_emoji(home), team_emoji(away)
     status_label = {
-        "STATUS_FIRST_HALF": "1st half",
-        "STATUS_HALFTIME": "Half time",
-        "STATUS_SECOND_HALF": "2nd half",
-        "STATUS_IN_PROGRESS": "In progress",
-        "STATUS_FULL_TIME": "Full time",
-        "STATUS_FINAL": "Full time",
+        "STATUS_FIRST_HALF": "1st half 上半场",
+        "STATUS_HALFTIME": "Half time 半场休息",
+        "STATUS_SECOND_HALF": "2nd half 下半场",
+        "STATUS_IN_PROGRESS": "In progress 进行中",
+        "STATUS_FULL_TIME": "Full time 全场结束",
+        "STATUS_FINAL": "Full time 全场结束",
+        "STATUS_SCHEDULED": "Scheduled 未开始",
     }.get(status, status)
     # "SECOND_HALF"/"FIRST_HALF" both contain "HALF", so a substring check
     # against `status` suppressed the clock during normal play too — only
@@ -230,16 +269,16 @@ def render_scoreboard(
         "",
     ]
     if var_review:
-        lines.append("⏳ VAR Review in progress")
+        lines.append("⏳ VAR Review in progress VAR 审查中")
         lines.append("")
     if goals:
-        lines.append("Goals")
+        lines.append("Goals 进球")
         for g in goals:
             tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
             lines.append(f"⚽ {g['minute']} {g['player']} ({g['team']}){tag}")
         lines.append("")
     if cards:
-        lines.append("Cards")
+        lines.append("Cards 红黄牌")
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
             lines.append(f"{emoji} {c['minute']} {c['player']} ({c['team']})")
@@ -247,15 +286,15 @@ def render_scoreboard(
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
-        lines.append("Shots (on target)")
+        lines.append("Shots (on target) 射门（射正）")
         lines.append(
             f"{home}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
             f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
-        lines.append(f"Possession: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
+        lines.append(f"Possession 控球: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
         lines.append("")
     if recent:
-        lines.append("Live")
+        lines.append("Live 实时")
         for r in recent:
             lines.append(r)
     return "```\n" + "\n".join(lines) + "\n```"
@@ -333,7 +372,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v6 — lineups at kickoff, mm:ss clock, VAR review banner, persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v7 — lineups grouped by position (bilingual), bilingual scoreboard labels, mm:ss clock, VAR review banner, persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
