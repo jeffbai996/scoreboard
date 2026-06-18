@@ -10,6 +10,8 @@ Notebook is deleted on FULL TIME.
 import sys
 import time
 import json
+import re
+import unicodedata
 import requests
 import os
 from datetime import datetime, timezone
@@ -311,8 +313,43 @@ BOARD_WIDTH = 32
 def _divider(ch: str = "─") -> str:
     return ch * BOARD_WIDTH
 
+# str.center() counts codepoints, not terminal cells — CJK characters and
+# flag emoji (regional-indicator pairs, or England/Scotland's multi-codepoint
+# tag sequences) all render ~2 cells wide in a monospace Discord code block,
+# so naive centering on len() skews noticeably once flags/Chinese enter the
+# string. Walk the string collapsing each flag sequence to one "wide" unit
+# and call unicodedata on everything else.
+_REGIONAL_INDICATOR = re.compile("[\U0001F1E6-\U0001F1FF]")
+_TAG_FLAG = re.compile("\U0001F3F4[\U000E0000-\U000E007F]+")
+
+def _display_width(text: str) -> int:
+    # Pull out tag-sequence flags (England/Scotland/Wales) first since they
+    # span many codepoints but are exactly one 2-wide glyph.
+    consumed = set()
+    width = 0
+    for m in _TAG_FLAG.finditer(text):
+        width += 2
+        consumed.update(range(m.start(), m.end()))
+    i = 0
+    while i < len(text):
+        if i in consumed:
+            i += 1
+            continue
+        ch = text[i]
+        if _REGIONAL_INDICATOR.match(ch) and i + 1 < len(text) and _REGIONAL_INDICATOR.match(text[i + 1]):
+            width += 2  # a regional-indicator pair = one flag glyph
+            i += 2
+            continue
+        width += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        i += 1
+    return width
+
 def _center(text: str) -> str:
-    return text.center(BOARD_WIDTH)
+    pad = BOARD_WIDTH - _display_width(text)
+    if pad <= 0:
+        return text
+    left = pad // 2
+    return " " * left + text + " " * (pad - left)
 
 def _pct_to_str(frac) -> str:
     # ESPN's passPct/shotPct/etc come back as a 0-1 fraction (0.9), not a
@@ -504,7 +541,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v9 — \"Team vs Team\" header row, match stats (pass acc./corners/fouls), boxed mobile scoreboard (EN+CN, flags, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v10 — fixed flag/CJK centering (display-width aware), \"Team vs Team\" header, match stats (pass acc./corners/fouls), boxed mobile scoreboard (EN+CN, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
