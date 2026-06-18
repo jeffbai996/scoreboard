@@ -481,22 +481,27 @@ def archive_notebook(event_id: str) -> None:
     except Exception as ex:
         print(f"Notebook archive error: {ex}")
 
-def _scorer_name(detail: dict) -> str:
-    # ESPN's scoreboard/summary "details" entries key the people involved
-    # under "participants" (list of {"athlete": {...}}), not the
-    # "athletesInvolved" flat-athlete-list shape — that key doesn't exist
-    # here, so the old lookup silently always returned "Unknown". First
-    # participant is the scorer/carder; any later entries are assists.
+def _first_participant(detail: dict) -> dict:
+    # ESPN's scoreboard endpoint (/scoreboard, what the live poll loop reads)
+    # and the summary endpoint (/summary?event=, header.competitions[0])
+    # describe the same "details" concept with two different shapes:
+    #   scoreboard: athletesInvolved -> [{"id": ..., "displayName": ...}]   (flat)
+    #   summary:    participants     -> [{"athlete": {"id": ..., "displayName": ...}}]
+    # Handle both rather than assuming one — first entry is the scorer/carder,
+    # any later entries are assists.
     participants = detail.get("participants") or []
-    if not participants:
-        return "?"
-    return participants[0].get("athlete", {}).get("displayName", "?")
+    if participants:
+        return participants[0].get("athlete", {}) or {}
+    athletes = detail.get("athletesInvolved") or []
+    if athletes:
+        return athletes[0] or {}
+    return {}
+
+def _scorer_name(detail: dict) -> str:
+    return _first_participant(detail).get("displayName", "?")
 
 def _participant_athlete_id(detail: dict) -> str:
-    participants = detail.get("participants") or []
-    if not participants:
-        return ""
-    return participants[0].get("athlete", {}).get("id", "")
+    return _first_participant(detail).get("id", "")
 
 def build_notebook(
     event_id: str,
