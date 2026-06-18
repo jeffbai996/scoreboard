@@ -481,6 +481,23 @@ def archive_notebook(event_id: str) -> None:
     except Exception as ex:
         print(f"Notebook archive error: {ex}")
 
+def _scorer_name(detail: dict) -> str:
+    # ESPN's scoreboard/summary "details" entries key the people involved
+    # under "participants" (list of {"athlete": {...}}), not the
+    # "athletesInvolved" flat-athlete-list shape — that key doesn't exist
+    # here, so the old lookup silently always returned "Unknown". First
+    # participant is the scorer/carder; any later entries are assists.
+    participants = detail.get("participants") or []
+    if not participants:
+        return "?"
+    return participants[0].get("athlete", {}).get("displayName", "?")
+
+def _participant_athlete_id(detail: dict) -> str:
+    participants = detail.get("participants") or []
+    if not participants:
+        return ""
+    return participants[0].get("athlete", {}).get("id", "")
+
 def build_notebook(
     event_id: str,
     home: str,
@@ -495,7 +512,7 @@ def build_notebook(
     goals = [
         {
             "minute": d.get("clock", {}).get("displayValue", "?"),
-            "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+            "player": _scorer_name(d),
             "team": d.get("team", {}).get("displayName", "?"),
             "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
         }
@@ -504,7 +521,7 @@ def build_notebook(
     cards = [
         {
             "minute": d.get("clock", {}).get("displayValue", "?"),
-            "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+            "player": _scorer_name(d),
             "team": d.get("team", {}).get("displayName", "?"),
             "type": ("red" if d.get("redCard") else "yellow"),
         }
@@ -599,7 +616,7 @@ def main():
         goals_list = [
             {
                 "minute": d.get("clock", {}).get("displayValue", "?"),
-                "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+                "player": _scorer_name(d),
                 "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
                 "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
             }
@@ -608,7 +625,7 @@ def main():
         cards_list = [
             {
                 "minute": d.get("clock", {}).get("displayValue", "?"),
-                "player": (d.get("athletesInvolved") or [{}])[0].get("displayName", "?"),
+                "player": _scorer_name(d),
                 "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
                 "type": ("red" if d.get("redCard") else "yellow"),
             }
@@ -632,13 +649,15 @@ def main():
                 break
             last_state = current_state
         for detail in details:
-            athletes = detail.get("athletesInvolved", [])
-            player = athletes[0].get("displayName", "Unknown") if athletes else "Unknown"
-            uid = (
-                detail.get("clock", {}).get("displayValue", ""),
-                detail.get("type", {}).get("text", ""),
-                athletes[0].get("id", "") if athletes else "",
-            )
+            player = _scorer_name(detail)
+            # uid keyed on (event kind, scorer id, team) rather than the
+            # clock string — ESPN's "type.text" key doesn't exist on these
+            # detail entries (always None) and the clock display can drift
+            # between polls for the same goal (e.g. "40'" -> "45'+2'" stoppage
+            # time correction), so either of those alone made dedup flaky and
+            # caused the same goal to post twice.
+            kind = "goal" if detail.get("scoringPlay") else "red" if detail.get("redCard") else "yellow" if detail.get("yellowCard") else "other"
+            uid = (kind, _participant_athlete_id(detail), detail.get("team", {}).get("id", ""))
             if uid in seen_detail_uids:
                 continue
             seen_detail_uids.add(uid)
