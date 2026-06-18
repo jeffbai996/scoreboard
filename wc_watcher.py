@@ -20,7 +20,7 @@ DISCORD_API = "https://discord.com/api/v10"
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
 POLL_INTERVAL = 5  # seconds
-EPHEMERAL_LIFESPAN = 30  # seconds — how long full-fidelity commentary posts stay up
+EPHEMERAL_LIFESPAN = 60  # seconds — how long full-fidelity commentary posts stay up
 
 KEY_COMMENTARY_PHRASES = [
     "goal", "penalty", "red card", "yellow card", "offside", "var",
@@ -304,6 +304,25 @@ _STATUS_LABELS = {
     "STATUS_SCHEDULED": ("Scheduled", "未开始"),
 }
 
+# Fixed width tuned for mobile Discord code blocks — wide tables wrap
+# ugly on a phone screen, so everything below builds to fit this.
+BOARD_WIDTH = 32
+
+def _divider(ch: str = "─") -> str:
+    return ch * BOARD_WIDTH
+
+def _center(text: str) -> str:
+    return text.center(BOARD_WIDTH)
+
+def _possession_bar(home_pct: str, away_pct: str) -> str:
+    try:
+        h = float(home_pct)
+    except (TypeError, ValueError):
+        return ""
+    bar_width = BOARD_WIDTH - 2
+    filled = round(bar_width * h / 100)
+    return "[" + "█" * filled + "░" * (bar_width - filled) + "]"
+
 def _render_board_lines(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None,
@@ -316,45 +335,63 @@ def _render_board_lines(
     status_label = _STATUS_LABELS.get(status, (status, status))[lang]
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
     headers = {
-        "var": ("⏳ VAR Review in progress", "⏳ VAR 审查中"),
-        "goals": ("Goals", "进球"),
-        "cards": ("Cards", "红黄牌"),
-        "shots": ("Shots (on target)", "射门（射正）"),
-        "poss": ("Possession", "控球"),
-        "live": ("Live", "实时"),
+        "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
+        "goals": ("GOALS", "进球"),
+        "cards": ("CARDS", "红黄牌"),
+        "shots": ("SHOTS (ON TARGET)", "射门（射正）"),
+        "poss": ("POSSESSION", "控球"),
+        "live": ("LIVE", "实时"),
     }
+
+    score_line = f"{scores.get(home, 0)} - {scores.get(away, 0)}"
+    clock_str = f" {clock}" if clock and status not in no_clock_states else ""
     lines = [
-        f"{home_e} {home_disp} {scores.get(home, 0)} - {scores.get(away, 0)} {away_disp} {away_e}",
-        f"{status_label}{f' ({clock})' if clock and status not in no_clock_states else ''}",
-        "",
+        _divider("═"),
+        _center(f"{home_e} {home_disp}"),
+        _center(score_line),
+        _center(f"{away_disp} {away_e}"),
+        _center(f"· {status_label}{clock_str} ·"),
+        _divider("═"),
     ]
     if var_review:
-        lines.append(headers["var"][lang])
         lines.append("")
+        lines.append(_center(headers["var"][lang]))
     if goals:
+        lines.append("")
         lines.append(headers["goals"][lang])
+        lines.append(_divider())
         for g in goals:
             tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
             lines.append(f"⚽ {g['minute']} {g['player']} ({team_name(g['team'], lang)}){tag}")
-        lines.append("")
     if cards:
+        lines.append("")
         lines.append(headers["cards"][lang])
+        lines.append(_divider())
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
             lines.append(f"{emoji} {c['minute']} {c['player']} ({team_name(c['team'], lang)})")
-        lines.append("")
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
+        lines.append("")
         lines.append(headers["shots"][lang])
+        lines.append(_divider())
         lines.append(
-            f"{home_disp}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
+            f"{home_disp}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})"
+        )
+        lines.append(
             f"{away_disp}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
-        lines.append(f"{headers['poss'][lang]}: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
         lines.append("")
+        h_poss, a_poss = h_stats.get("possessionPct", "?"), a_stats.get("possessionPct", "?")
+        lines.append(f"{headers['poss'][lang]}  {h_poss}% – {a_poss}%")
+        bar = _possession_bar(h_poss, a_poss)
+        if bar:
+            lines.append(bar)
     if recent:
+        lines.append("")
         lines.append(headers["live"][lang])
+        lines.append(_divider())
         for r in recent:
             lines.append(r)
     return lines
@@ -444,7 +481,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v7 — lineups grouped by position (bilingual), bilingual scoreboard labels, mm:ss clock, VAR review banner, persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v8 — mobile-optimized boxed scoreboard (EN+CN blocks, flags, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
