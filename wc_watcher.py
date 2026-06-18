@@ -314,6 +314,14 @@ def _divider(ch: str = "─") -> str:
 def _center(text: str) -> str:
     return text.center(BOARD_WIDTH)
 
+def _pct_to_str(frac) -> str:
+    # ESPN's passPct/shotPct/etc come back as a 0-1 fraction (0.9), not a
+    # whole percentage like possessionPct (51.7) — needs its own scaling.
+    try:
+        return f"{float(frac) * 100:.0f}%"
+    except (TypeError, ValueError):
+        return "?"
+
 def _possession_bar(home_pct: str, away_pct: str) -> str:
     try:
         h = float(home_pct)
@@ -340,6 +348,7 @@ def _render_board_lines(
         "cards": ("CARDS", "红黄牌"),
         "shots": ("SHOTS (ON TARGET)", "射门（射正）"),
         "poss": ("POSSESSION", "控球"),
+        "extra": ("MATCH STATS", "比赛数据"),
         "live": ("LIVE", "实时"),
     }
 
@@ -347,9 +356,8 @@ def _render_board_lines(
     clock_str = f" {clock}" if clock and status not in no_clock_states else ""
     lines = [
         _divider("═"),
-        _center(f"{home_e} {home_disp}"),
+        _center(f"{home_e} {home_disp} vs {away_disp} {away_e}"),
         _center(score_line),
-        _center(f"{away_disp} {away_e}"),
         _center(f"· {status_label}{clock_str} ·"),
         _divider("═"),
     ]
@@ -388,6 +396,21 @@ def _render_board_lines(
         bar = _possession_bar(h_poss, a_poss)
         if bar:
             lines.append(bar)
+        lines.append("")
+        lines.append(headers["extra"][lang])
+        lines.append(_divider())
+        h_pass_pct = _pct_to_str(h_stats.get("passPct"))
+        a_pass_pct = _pct_to_str(a_stats.get("passPct"))
+        pass_label = "Pass acc." if lang == 0 else "传球成功率"
+        corners_label = "Corners" if lang == 0 else "角球"
+        fouls_label = "Fouls" if lang == 0 else "犯规"
+        lines.append(f"{pass_label}  {h_pass_pct} – {a_pass_pct}")
+        lines.append(
+            f"{corners_label}  {h_stats.get('wonCorners', '?')} – {a_stats.get('wonCorners', '?')}"
+        )
+        lines.append(
+            f"{fouls_label}  {h_stats.get('foulsCommitted', '?')} – {a_stats.get('foulsCommitted', '?')}"
+        )
     if recent:
         lines.append("")
         lines.append(headers["live"][lang])
@@ -481,7 +504,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v8 — mobile-optimized boxed scoreboard (EN+CN blocks, flags, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v9 — \"Team vs Team\" header row, match stats (pass acc./corners/fouls), boxed mobile scoreboard (EN+CN, flags, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
