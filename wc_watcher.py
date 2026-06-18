@@ -350,6 +350,20 @@ def _pct_to_str(frac) -> str:
     except (TypeError, ValueError):
         return "?"
 
+def _ratio_pct_str(accurate, total) -> str:
+    # ESPN's passPct displayValue is pre-rounded to one decimal (0.7, 0.9) --
+    # coarse enough that it can sit pinned on the same value for most of a
+    # match even as the underlying accurate/total counts keep climbing
+    # (Jeff caught this 2026-06-17: looked frozen most of the 2nd half).
+    # Compute from the raw counts instead for real precision.
+    try:
+        t = float(total)
+        if t == 0:
+            return "?"
+        return f"{float(accurate) / t * 100:.0f}%"
+    except (TypeError, ValueError):
+        return "?"
+
 def _possession_bar(home_pct: str, away_pct: str) -> str:
     try:
         h = float(home_pct)
@@ -427,8 +441,8 @@ def _render_board_lines(
         lines.append("")
         lines.append(headers["extra"][lang])
         lines.append(_divider())
-        h_pass_pct = _pct_to_str(h_stats.get("passPct"))
-        a_pass_pct = _pct_to_str(a_stats.get("passPct"))
+        h_pass_pct = _ratio_pct_str(h_stats.get("accuratePasses"), h_stats.get("totalPasses"))
+        a_pass_pct = _ratio_pct_str(a_stats.get("accuratePasses"), a_stats.get("totalPasses"))
         pass_label = "Pass acc." if lang == 0 else "传球成功率"
         corners_label = "Corners" if lang == 0 else "角球"
         fouls_label = "Fouls" if lang == 0 else "犯规"
