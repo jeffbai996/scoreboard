@@ -154,6 +154,35 @@ def is_key_moment(text: str) -> bool:
     lower = text.lower()
     return any(phrase in lower for phrase in KEY_COMMENTARY_PHRASES)
 
+def format_clock(clock_secs: float | None) -> str:
+    """ESPN's own displayClock string is coarse (whole minutes, '90+14''
+    stoppage notation). status.clock is raw elapsed seconds — convert that
+    to mm:ss directly for a steadier per-poll readout."""
+    if clock_secs is None:
+        return ""
+    total = int(clock_secs)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+def format_lineups(summary: dict, home: str, away: str) -> str | None:
+    rosters = summary.get("rosters", [])
+    if not rosters:
+        return None
+    lines = ["Lineups"]
+    for r in rosters:
+        team_name = r.get("team", {}).get("displayName", "?")
+        formation = r.get("formation", "")
+        starters = [
+            p["athlete"].get("shortName", p["athlete"].get("displayName", "?"))
+            for p in r.get("roster", [])
+            if p.get("starter")
+        ]
+        if not starters:
+            continue
+        header = f"{team_name}" + (f" ({formation})" if formation else "")
+        lines.append(header)
+        lines.append(", ".join(starters))
+    return "\n".join(lines) if len(lines) > 1 else None
+
 def format_commentary(text: str, minute: str) -> str:
     lower = text.lower()
     if "goal" in lower or "into the net" in lower or "opens the scoring" in lower:
@@ -180,6 +209,7 @@ def scoreline(scores: dict, home: str, away: str) -> str:
 def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None = None,
+    var_review: bool = False,
 ) -> str:
     home_e, away_e = team_emoji(home), team_emoji(away)
     status_label = {
@@ -199,6 +229,9 @@ def render_scoreboard(
         f"{status_label}{f' ({clock})' if clock and status not in no_clock_states else ''}",
         "",
     ]
+    if var_review:
+        lines.append("⏳ VAR Review in progress")
+        lines.append("")
     if goals:
         lines.append("Goals")
         for g in goals:
@@ -300,7 +333,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v5 — persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v6 — lineups at kickoff, mm:ss clock, VAR review banner, persistent scoreboard (goals/cards permanent, full-fidelity commentary in the Live section, ~{EPHEMERAL_LIFESPAN}s rolling). Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
@@ -324,6 +357,13 @@ def main():
     # instead of separate posts, so it updates silently via the same edit and
     # doesn't trigger notifications. (text, post_time) pairs, pruned by age.
     recent_commentary: list = []
+    lineups_posted = False
+    # ESPN's commentary feed doesn't give a clean "review resolved" signal,
+    # just the initial "VAR Review" text — so treat any VAR mention as
+    # opening a review window and let it auto-clear after VAR_REVIEW_TIMEOUT
+    # instead of tracking actual resolution.
+    var_review_until: float = 0.0
+    VAR_REVIEW_TIMEOUT = 90  # seconds
 
     while True:
         event = fetch_scoreboard(event_id)
@@ -334,7 +374,7 @@ def main():
         comp = event["competitions"][0]
         status = comp["status"]
         current_state = status.get("type", {}).get("name", "")
-        clock = status.get("type", {}).get("detail", "")
+        clock = format_clock(status.get("clock"))
 
         # Build team map once
         if not home_name:
@@ -433,6 +473,21 @@ def main():
         summary = fetch_summary(event_id)
         commentary = summary.get("commentary", [])
 
+        # Lineups post once at kickoff, as soon as ESPN exposes the rosters
+        # (usually a few minutes before/at kickoff, not pregame).
+        if not lineups_posted:
+            lineups_text = format_lineups(summary, home_name, away_name)
+            if lineups_text:
+                post_discord(channel_id, f"```\n{lineups_text}\n```")
+                lineups_posted = True
+                scoreboard_buried_by += 1
+            elif current_state not in ("STATUS_SCHEDULED", ""):
+                # ESPN sometimes never exposes rosters for a match (data gap,
+                # not a transient timing issue) — stop polling for it once
+                # the game is actually underway so we're not wasting a fetch
+                # every single poll for the rest of the match.
+                lineups_posted = True
+
         # Extract stats if available
         stats: dict = {}
         for box in summary.get("boxscore", {}).get("teams", []):
@@ -455,6 +510,8 @@ def main():
                 # details above; log everything to the notebook either way.
                 commentary_log.append({"minute": minute, "text": text})
                 lower = text.lower()
+                if "var" in lower:
+                    var_review_until = time.monotonic() + VAR_REVIEW_TIMEOUT
                 if "goal" in lower or "red card" in lower or "yellow card" in lower:
                     continue  # already posted permanently above
                 # Jeff 2026-06-17: full fidelity for everything else (subs,
@@ -468,6 +525,7 @@ def main():
         recent_commentary = [
             (txt, t) for txt, t in recent_commentary if now - t < EPHEMERAL_LIFESPAN
         ]
+        var_review_active = now < var_review_until
 
         # Persistent scoreboard — normally just edited in place every poll
         # (same approach as the agent view panel) so it doesn't spam the
@@ -480,6 +538,7 @@ def main():
             home_name, away_name, scores, clock, current_state,
             goals_list, cards_list, stats,
             [txt for txt, _ in recent_commentary],
+            var_review=var_review_active,
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
