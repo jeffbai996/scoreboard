@@ -11,6 +11,85 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 - Writes a live JSON "notebook" to `/tmp/wc_notebook_<event_id>.json` on every poll, so other tools/queries can read current match state without hitting ESPN again
 - Archives the notebook to `completed/` on full time instead of deleting it, so finished-match notes stay queryable for the rest of the tournament
 
+## What it looks like
+
+The scoreboard is a single Discord message, edited in place each poll. It posts an English block followed by a Chinese block:
+
+```
+════════════════════════════════
+     🇨🇦 Canada vs Qatar 🇶🇦      
+             2 - 0              
+        · 1st half 34' ·        
+════════════════════════════════
+
+GOALS
+────────────────────────────────
+⚽ 16' Cyle Larin (Canada)
+⚽ 29' Jonathan David (Canada)
+
+CARDS
+────────────────────────────────
+🟨 9' Derek Cornelius (Canada)
+🟥 33' Homam El Amin (Qatar)
+
+SHOTS (ON TARGET)
+────────────────────────────────
+Canada: 7 (4)
+Qatar: 2 (0)
+
+POSSESSION  66.2% – 33.8%
+[████████████████████░░░░░░░░░░]
+
+MATCH STATS
+────────────────────────────────
+Pass acc.  88% – 65%
+Corners  3 – 1
+Fouls  2 – 4
+
+LIVE
+────────────────────────────────
+33' Homam El Amin (Qatar) is shown the red card.
+33' VAR Decision: No Penalty Canada.
+```
+```
+════════════════════════════════
+     🇨🇦 加拿大 vs 卡塔尔 🇶🇦     
+             2 - 0              
+         · 上半场 34' ·         
+════════════════════════════════
+
+进球
+────────────────────────────────
+⚽ 16' Cyle Larin (加拿大)
+⚽ 29' Jonathan David (加拿大)
+
+红黄牌
+────────────────────────────────
+🟨 9' Derek Cornelius (加拿大)
+🟥 33' Homam El Amin (卡塔尔)
+
+射门（射正）
+────────────────────────────────
+加拿大: 7 (4)
+卡塔尔: 2 (0)
+
+控球  66.2% – 33.8%
+[████████████████████░░░░░░░░░░]
+
+比赛数据
+────────────────────────────────
+传球成功率  88% – 65%
+角球  3 – 1
+犯规  2 – 4
+
+实时
+────────────────────────────────
+33' Homam El Amin (Qatar) is shown the red card.
+33' VAR Decision: No Penalty Canada.
+```
+
+GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block.
+
 ## Why it's built this way
 
 ESPN exposes the same "who scored / who got carded" concept with two different JSON shapes depending on the endpoint (`scoreboard` uses `athletesInvolved`, `summary` uses `participants`) — the code normalizes both. Pass/shot accuracy fields ESPN reports are pre-rounded to one decimal, so percentages are computed from the raw counts instead, since the rounded version can look frozen for long stretches of a match even as the underlying numbers move.
