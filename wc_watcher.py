@@ -70,6 +70,36 @@ def team_emoji(name: str) -> str:
             return v
     return "⚽"
 
+# Full 2026 WC qualified-nation list — pulled from ESPN's scoreboard across
+# the whole tournament window, keyed on the exact displayName string ESPN
+# returns (not lowercased/fuzzy — team names are a closed set so an exact
+# dict lookup is more reliable than substring matching).
+TEAM_NAMES_CN = {
+    "Algeria": "阿尔及利亚", "Argentina": "阿根廷", "Australia": "澳大利亚",
+    "Austria": "奥地利", "Belgium": "比利时", "Bosnia-Herzegovina": "波黑",
+    "Brazil": "巴西", "Canada": "加拿大", "Cape Verde": "佛得角",
+    "Colombia": "哥伦比亚", "Congo DR": "刚果民主共和国", "Croatia": "克罗地亚",
+    "Curaçao": "库拉索", "Czechia": "捷克", "Ecuador": "厄瓜多尔",
+    "Egypt": "埃及", "England": "英格兰", "France": "法国", "Germany": "德国",
+    "Ghana": "加纳", "Haiti": "海地", "Iran": "伊朗", "Iraq": "伊拉克",
+    "Ivory Coast": "科特迪瓦", "Japan": "日本", "Jordan": "约旦",
+    "Mexico": "墨西哥", "Morocco": "摩洛哥", "Netherlands": "荷兰",
+    "New Zealand": "新西兰", "Norway": "挪威", "Panama": "巴拿马",
+    "Paraguay": "巴拉圭", "Portugal": "葡萄牙", "Qatar": "卡塔尔",
+    "Saudi Arabia": "沙特阿拉伯", "Scotland": "苏格兰", "Senegal": "塞内加尔",
+    "South Africa": "南非", "South Korea": "韩国", "Spain": "西班牙",
+    "Sweden": "瑞典", "Switzerland": "瑞士", "Tunisia": "突尼斯",
+    "Türkiye": "土耳其", "United States": "美国", "Uruguay": "乌拉圭",
+    "Uzbekistan": "乌兹别克斯坦",
+}
+
+def team_name(name: str, lang: int) -> str:
+    """lang: 0 = English (passthrough), 1 = Chinese (mapped, falls back
+    to the English name if a team isn't in TEAM_NAMES_CN yet)."""
+    if lang == 0:
+        return name
+    return TEAM_NAMES_CN.get(name, name)
+
 def post_discord(channel_id: str, text: str) -> str | None:
     """Post a message, returning its message_id (None if posting failed
     or no bot token is configured) so callers can later edit it in place."""
@@ -261,6 +291,7 @@ def _render_board_lines(
 ) -> list[str]:
     """lang: 0 = English, 1 = Chinese. Labels split per Jeff 2026-06-17:
     one full code block per language rather than bilingual inline labels."""
+    home_disp, away_disp = team_name(home, lang), team_name(away, lang)
     home_e, away_e = team_emoji(home), team_emoji(away)
     status_label = _STATUS_LABELS.get(status, (status, status))[lang]
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
@@ -273,7 +304,7 @@ def _render_board_lines(
         "live": ("Live", "实时"),
     }
     lines = [
-        f"{home_e} {home} {scores.get(home, 0)} - {scores.get(away, 0)} {away} {away_e}",
+        f"{home_e} {home_disp} {scores.get(home, 0)} - {scores.get(away, 0)} {away_disp} {away_e}",
         f"{status_label}{f' ({clock})' if clock and status not in no_clock_states else ''}",
         "",
     ]
@@ -284,21 +315,21 @@ def _render_board_lines(
         lines.append(headers["goals"][lang])
         for g in goals:
             tag = " (pen.)" if g["type"] == "pen." else " (OG)" if g["type"] == "OWN GOAL" else ""
-            lines.append(f"⚽ {g['minute']} {g['player']} ({g['team']}){tag}")
+            lines.append(f"⚽ {g['minute']} {g['player']} ({team_name(g['team'], lang)}){tag}")
         lines.append("")
     if cards:
         lines.append(headers["cards"][lang])
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
-            lines.append(f"{emoji} {c['minute']} {c['player']} ({c['team']})")
+            lines.append(f"{emoji} {c['minute']} {c['player']} ({team_name(c['team'], lang)})")
         lines.append("")
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
         lines.append(headers["shots"][lang])
         lines.append(
-            f"{home}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
-            f"{away}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
+            f"{home_disp}: {h_stats.get('totalShots', '?')} ({h_stats.get('shotsOnTarget', '?')})  |  "
+            f"{away_disp}: {a_stats.get('totalShots', '?')} ({a_stats.get('shotsOnTarget', '?')})"
         )
         lines.append(f"{headers['poss'][lang]}: {h_stats.get('possessionPct', '?')}% – {a_stats.get('possessionPct', '?')}%")
         lines.append("")
