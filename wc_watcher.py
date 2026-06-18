@@ -792,10 +792,17 @@ def main():
             # "X pinned a message" system notice every repost — 2026-06-17:
             # too noisy. Delete+repost alone already resurfaces it at the
             # bottom of the channel, which is the part that actually matters.
-            delete_discord(channel_id, scoreboard_msg_id)
-            scoreboard_msg_id = post_discord(channel_id, board_text)
-            scoreboard_buried_by = 0
-            polls_since_repost = 0
+            # 2026-06-18: post the replacement *before* deleting the old one —
+            # post_discord fails silently (network blip, rate limit) and used
+            # to leave the scoreboard deleted with nothing replacing it.
+            old_msg_id = scoreboard_msg_id
+            new_msg_id = post_discord(channel_id, board_text)
+            if new_msg_id:
+                delete_discord(channel_id, old_msg_id)
+                scoreboard_msg_id = new_msg_id
+                scoreboard_buried_by = 0
+                polls_since_repost = 0
+            # else: keep editing the old message next poll instead of losing it
         else:
             edit_discord(channel_id, scoreboard_msg_id, board_text)
 
