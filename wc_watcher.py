@@ -354,7 +354,7 @@ def _ratio_pct_str(accurate, total) -> str:
     # ESPN's passPct displayValue is pre-rounded to one decimal (0.7, 0.9) --
     # coarse enough that it can sit pinned on the same value for most of a
     # match even as the underlying accurate/total counts keep climbing
-    # (Jeff caught this 2026-06-17: looked frozen most of the 2nd half).
+    # (caught 2026-06-17: looked frozen most of the 2nd half).
     # Compute from the raw counts instead for real precision.
     try:
         t = float(total)
@@ -378,7 +378,7 @@ def _render_board_lines(
     goals: list, cards: list, stats: dict, recent: list | None,
     var_review: bool, lang: int,
 ) -> list[str]:
-    """lang: 0 = English, 1 = Chinese. Labels split per Jeff 2026-06-17:
+    """lang: 0 = English, 1 = Chinese. Labels split 2026-06-17:
     one full code block per language rather than bilingual inline labels."""
     home_disp, away_disp = team_name(home, lang), team_name(away, lang)
     home_e, away_e = team_emoji(home), team_emoji(away)
@@ -484,7 +484,7 @@ def write_notebook(event_id: str, notebook: dict) -> None:
 def archive_notebook(event_id: str) -> None:
     """Move the live notebook to a persistent archive dir instead of deleting it,
     so completed-match notes survive past full time and stay queryable.
-    Jeff 2026-06-17: keep these for the WC duration, delete the whole completed/
+    Keep these for the WC duration, delete the whole completed/
     dir once the tournament ends — not meant to be kept forever."""
     src = f"/tmp/wc_notebook_{event_id}.json"
     archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "completed")
@@ -591,7 +591,7 @@ def main():
     # so back that case with a flat timer — repost every ~2 min regardless.
     polls_since_repost = 0
     REPOST_EVERY_POLLS = max(1, round(120 / POLL_INTERVAL))
-    # Full-fidelity commentary (subs, injuries, dangerous chances, etc) — Jeff
+    # Full-fidelity commentary (subs, injuries, dangerous chances, etc) —
     # 2026-06-17: show everything, but inside the scoreboard's "Live" section
     # instead of separate posts, so it updates silently via the same edit and
     # doesn't trigger notifications. (text, post_time) pairs, pruned by age.
@@ -613,7 +613,7 @@ def main():
         comp = event["competitions"][0]
         status = comp["status"]
         current_state = status.get("type", {}).get("name", "")
-        # Jeff 2026-06-17: back to ESPN's own display string (e.g. "53'")
+        # 2026-06-17: back to ESPN's own display string (e.g. "53'")
         # instead of the mm:ss conversion — simpler, and matches what every
         # other soccer score feed shows.
         clock = status.get("type", {}).get("detail", "")
@@ -758,7 +758,7 @@ def main():
                     var_review_until = time.monotonic() + VAR_REVIEW_TIMEOUT
                 if "goal" in lower or "red card" in lower or "yellow card" in lower:
                     continue  # already posted permanently above
-                # Jeff 2026-06-17: full fidelity for everything else (subs,
+                # 2026-06-17: full fidelity for everything else (subs,
                 # injuries, dangerous chances, saves, etc) — shown in the
                 # scoreboard's "Live" section (edited, no notification) and
                 # aged out after EPHEMERAL_LIFESPAN instead of separate posts.
@@ -789,7 +789,7 @@ def main():
             polls_since_repost = 0
         elif scoreboard_buried_by > 0 or polls_since_repost >= REPOST_EVERY_POLLS:
             # Pinning used to handle "find it again," but each pin fires a
-            # "X pinned a message" system notice every repost — Jeff 2026-06-17:
+            # "X pinned a message" system notice every repost — 2026-06-17:
             # too noisy. Delete+repost alone already resurfaces it at the
             # bottom of the channel, which is the part that actually matters.
             delete_discord(channel_id, scoreboard_msg_id)
