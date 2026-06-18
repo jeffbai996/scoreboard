@@ -206,15 +206,6 @@ def is_key_moment(text: str) -> bool:
     lower = text.lower()
     return any(phrase in lower for phrase in KEY_COMMENTARY_PHRASES)
 
-def format_clock(clock_secs: float | None) -> str:
-    """ESPN's own displayClock string is coarse (whole minutes, '90+14''
-    stoppage notation). status.clock is raw elapsed seconds — convert that
-    to mm:ss directly for a steadier per-poll readout."""
-    if clock_secs is None:
-        return ""
-    total = int(clock_secs)
-    return f"{total // 60:02d}:{total % 60:02d}"
-
 # ESPN's position.abbreviation comes back as one of ~15 granular tags
 # (CD-L, CM-R, AM, LB, ...) — too fine-grained to be readable at a glance
 # for someone who doesn't already know soccer positions. Bucket down to
@@ -541,7 +532,7 @@ def main():
     channel_id = sys.argv[2]
 
     print(f"Watching event {event_id} → Discord {channel_id}")
-    post_discord(channel_id, f"👀 加班鸭 live feed v10 — fixed flag/CJK centering (display-width aware), \"Team vs Team\" header, match stats (pass acc./corners/fouls), boxed mobile scoreboard (EN+CN, possession bar), position-grouped lineups, mm:ss clock, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
+    post_discord(channel_id, f"👀 加班鸭 live feed v11 — back to ESPN's native clock (\"53'\"), fixed flag/CJK centering, \"Team vs Team\" header, match stats (pass acc./corners/fouls), boxed mobile scoreboard (EN+CN, possession bar), position-grouped lineups, VAR banner, ~{EPHEMERAL_LIFESPAN}s rolling commentary. Polling every {POLL_INTERVAL}s.")
 
     seen_commentary: set = set()
     seen_detail_uids: set = set()
@@ -582,7 +573,10 @@ def main():
         comp = event["competitions"][0]
         status = comp["status"]
         current_state = status.get("type", {}).get("name", "")
-        clock = format_clock(status.get("clock"))
+        # Jeff 2026-06-17: back to ESPN's own display string (e.g. "53'")
+        # instead of the mm:ss conversion — simpler, and matches what every
+        # other soccer score feed shows.
+        clock = status.get("type", {}).get("detail", "")
 
         # Build team map once
         if not home_name:
