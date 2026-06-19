@@ -5,6 +5,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 ## What it does
 
 - Polls ESPN's scoreboard/summary endpoints every few seconds for a given match
+- Posts a one-time **match intro** as soon as ESPN exposes rosters (venue, city, kickoff time in ET/PT, round, broadcast, referee, plus a formation-grouped visual lineup with jersey numbers for both teams)
 - Posts a single Discord message and **edits it in place** as the match progresses (score, clock, stats, recent commentary) instead of spamming new messages
 - Posts permanent announcements for goals and cards, deduped so each event only fires once
 - Surfaces full-fidelity commentary (subs, injuries, dangerous chances, saves, VAR reviews) inside the scoreboard's "Live" section, aged out after a short window so it doesn't clutter
@@ -13,29 +14,82 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 
 ## What it looks like
 
-The scoreboard is a single Discord message, edited in place each poll. It posts an English block followed by a Chinese block:
+Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info and a formation-grouped lineup:
 
 ```
 ════════════════════════════════
-     🇨🇦 Canada vs Qatar 🇶🇦      
+🇺🇸 United States vs Australia 🇦🇺
+════════════════════════════════
+
+FIFA World Cup, Group D
+📍 Lumen Field, Seattle, Washington
+🕐 3:00PM ET / 12:00PM PT
+📺 FOX, Tele, FOX One
+🟨 Referee: Felix Zwayer
+
+🇺🇸 United States (3-5-2)
+────────────────────────────────
+  GK  #24 M. Freese
+  DEF  #13 T. Ream · #3 C. Richards · #16 A. Freeman
+  MID  #2 S. Dest · #5 A. Robinson · #8 W. McKennie · #17 M. Tillman · #4 T. Adams
+  FWD  #9 R. Pepi · #20 F. Balogun
+
+🇦🇺 Australia (5-4-1)
+────────────────────────────────
+  GK  #18 P. Beach
+  DEF  #4 J. Italiano · #5 J. Bos · #21 C. Burgess · #19 H. Souttar · #3 A. Circati
+  MID  #7 M. Leckie · #13 A. O'Neill · #24 P. Okon-Engstler · #23 N. Velupillay
+  FWD  #9 M. Toure
+```
+```
+════════════════════════════════
+     🇺🇸 美国 vs 澳大利亚 🇦🇺     
+════════════════════════════════
+
+FIFA World Cup, Group D
+📍 Lumen Field, Seattle, Washington
+🕐 3:00PM ET / 12:00PM PT
+📺 FOX, Tele, FOX One
+🟨 裁判: Felix Zwayer
+
+🇺🇸 美国 (3-5-2)
+────────────────────────────────
+  门将  #24 M. Freese
+  后卫  #13 T. Ream · #3 C. Richards · #16 A. Freeman
+  中场  #2 S. Dest · #5 A. Robinson · #8 W. McKennie · #17 M. Tillman · #4 T. Adams
+  前锋  #9 R. Pepi · #20 F. Balogun
+
+🇦🇺 澳大利亚 (5-4-1)
+────────────────────────────────
+  门将  #18 P. Beach
+  后卫  #4 J. Italiano · #5 J. Bos · #21 C. Burgess · #19 H. Souttar · #3 A. Circati
+  中场  #7 M. Leckie · #13 A. O'Neill · #24 P. Okon-Engstler · #23 N. Velupillay
+  前锋  #9 M. Toure
+```
+
+From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It posts an English block followed by a Chinese block:
+
+```
+════════════════════════════════
+     🇺🇸 United States vs Australia 🇦🇺      
              2 - 0              
         · 1st half 34' ·        
 ════════════════════════════════
 
 GOALS
 ────────────────────────────────
-⚽ 16' Cyle Larin (Canada)
-⚽ 29' Jonathan David (Canada)
+⚽ 16' Ricardo Pepi (United States)
+⚽ 29' Folarin Balogun (United States)
 
 CARDS
 ────────────────────────────────
-🟨 9' Derek Cornelius (Canada)
-🟥 33' Homam El Amin (Qatar)
+🟨 9' Tim Ream (United States)
+🟥 33' Harry Souttar (Australia)
 
 SHOTS (ON TARGET)
 ────────────────────────────────
-Canada: 7 (4)
-Qatar: 2 (0)
+United States: 7 (4)
+Australia: 2 (0)
 
 POSSESSION  66.2% – 33.8%
 [████████████████████░░░░░░░░░░]
@@ -48,30 +102,30 @@ Fouls  2 – 4
 
 LIVE
 ────────────────────────────────
-33' Homam El Amin (Qatar) is shown the red card.
-33' VAR Decision: No Penalty Canada.
+33' Harry Souttar (Australia) is shown the red card.
+33' VAR Decision: No Penalty United States.
 ```
 ```
 ════════════════════════════════
-     🇨🇦 加拿大 vs 卡塔尔 🇶🇦     
+    🇺🇸 美国 vs 澳大利亚 🇦🇺      
              2 - 0              
          · 上半场 34' ·         
 ════════════════════════════════
 
 进球
 ────────────────────────────────
-⚽ 16' Cyle Larin (加拿大)
-⚽ 29' Jonathan David (加拿大)
+⚽ 16' Ricardo Pepi (美国)
+⚽ 29' Folarin Balogun (美国)
 
 红黄牌
 ────────────────────────────────
-🟨 9' Derek Cornelius (加拿大)
-🟥 33' Homam El Amin (卡塔尔)
+🟨 9' Tim Ream (美国)
+🟥 33' Harry Souttar (澳大利亚)
 
 射门（射正）
 ────────────────────────────────
-加拿大: 7 (4)
-卡塔尔: 2 (0)
+美国: 7 (4)
+澳大利亚: 2 (0)
 
 控球  66.2% – 33.8%
 [████████████████████░░░░░░░░░░]
@@ -84,8 +138,8 @@ LIVE
 
 实时
 ────────────────────────────────
-33' Homam El Amin (Qatar) is shown the red card.
-33' VAR Decision: No Penalty Canada.
+33' Harry Souttar (Australia) is shown the red card.
+33' VAR Decision: No Penalty United States.
 ```
 
 GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block.
