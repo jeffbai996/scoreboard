@@ -5,7 +5,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 ## What it does
 
 - Polls ESPN's scoreboard/summary endpoints every few seconds for a given match
-- Posts a one-time **match intro** as soon as ESPN exposes rosters (venue, city, kickoff time in ET/PT, round, broadcast, referee, plus a formation-grouped visual lineup with jersey numbers for both teams)
+- Posts a one-time **match intro** as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
 - Posts a single Discord message and **edits it in place** as the match progresses (score, clock, stats, recent commentary) instead of spamming new messages
 - Posts permanent announcements for goals and cards, deduped so each event only fires once
 - Surfaces full-fidelity commentary (subs, injuries, dangerous chances, saves, VAR reviews) inside the scoreboard's "Live" section, aged out after a short window so it doesn't clutter
@@ -14,7 +14,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 
 ## What it looks like
 
-Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info and a formation-grouped lineup:
+Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, and a formation-grouped lineup (sent as two messages, English then Chinese, since the combined content can exceed Discord's single-message length cap):
 
 ```
 ════════════════════════════════
@@ -26,6 +26,17 @@ FIFA World Cup, Group D
 🕐 3:00PM ET / 12:00PM PT
 📺 FOX, Tele, FOX One
 🟨 Referee: Felix Zwayer
+
+STANDINGS
+────────────────────────────────
+1. United States  2-0-0  GD +5  Pts 6
+2. Australia  1-0-1  GD 0  Pts 3
+3. Türkiye  0-0-1  GD -2  Pts 0
+4. Paraguay  0-0-1  GD -3  Pts 0
+
+LAST MEETING
+────────────────────────────────
+2025-10-15  United States 2-1 Australia
 
 🇺🇸 United States (3-5-2)
 ────────────────────────────────
@@ -40,31 +51,11 @@ FIFA World Cup, Group D
   DEF  #4 J. Italiano · #5 J. Bos · #21 C. Burgess · #19 H. Souttar · #3 A. Circati
   MID  #7 M. Leckie · #13 A. O'Neill · #24 P. Okon-Engstler · #23 N. Velupillay
   FWD  #9 M. Toure
-```
-```
-════════════════════════════════
-     🇺🇸 美国 vs 澳大利亚 🇦🇺     
-════════════════════════════════
 
-FIFA World Cup, Group D
-📍 Lumen Field, Seattle, Washington
-🕐 3:00PM ET / 12:00PM PT
-📺 FOX, Tele, FOX One
-🟨 裁判: Felix Zwayer
-
-🇺🇸 美国 (3-5-2)
+STANDOUTS
 ────────────────────────────────
-  门将  #24 M. Freese
-  后卫  #13 T. Ream · #3 C. Richards · #16 A. Freeman
-  中场  #2 S. Dest · #5 A. Robinson · #8 W. McKennie · #17 M. Tillman · #4 T. Adams
-  前锋  #9 R. Pepi · #20 F. Balogun
-
-🇦🇺 澳大利亚 (5-4-1)
-────────────────────────────────
-  门将  #18 P. Beach
-  后卫  #4 J. Italiano · #5 J. Bos · #21 C. Burgess · #19 H. Souttar · #3 A. Circati
-  中场  #7 M. Leckie · #13 A. O'Neill · #24 P. Okon-Engstler · #23 N. Velupillay
-  前锋  #9 M. Toure
+🇺🇸 United States  Total Shots: Dest (3) · Accurate Passes: Richards (91) · Defensive Interventions: Richards (12) · Saves: Freese (2)
+🇦🇺 Australia  Total Shots: Circati (1) · Accurate Passes: Okon-Engstler (31) · Defensive Interventions: Circati (13) · Saves: Beach (1)
 ```
 
 From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It posts an English block followed by a Chinese block:

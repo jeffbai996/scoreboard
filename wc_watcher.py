@@ -252,11 +252,73 @@ def _fmt_kickoff(date_str: str) -> tuple[str, str]:
     pt = dt.astimezone(_PT)
     return (et.strftime("%-I:%M%p ET"), pt.strftime("%-I:%M%p PT"))
 
-def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: str) -> str | None:
+def _standings_lines(summary: dict, home: str, away: str, lang: int) -> list[str]:
+    """Group table snapshot, so the intro shows what's at stake — not just
+    who's playing. Only the group containing home/away is relevant here."""
+    groups = summary.get("standings", {}).get("groups", [])
+    group = next(
+        (g for g in groups if any(
+            e.get("team") in (home, away) for e in g.get("standings", {}).get("entries", [])
+        )),
+        None,
+    )
+    if not group:
+        return []
+    label = "STANDINGS" if lang == 0 else "小组积分"
+    lines = ["", label, _divider()]
+    for e in group["standings"]["entries"]:
+        stats = {s["name"]: s["displayValue"] for s in e.get("stats", [])}
+        disp = team_name(e.get("team", "?"), lang)
+        lines.append(
+            f"{stats.get('rank', '?')}. {disp}  {stats.get('overall', '?')}"
+            f"  GD {stats.get('pointDifferential', '?')}  Pts {stats.get('points', '?')}"
+        )
+    return lines
+
+def _h2h_lines(summary: dict, home: str, away: str, lang: int) -> list[str]:
+    """Last meeting between these two teams, if ESPN has one on file."""
+    h2h = summary.get("headToHeadGames", [])
+    home_entry = next((t for t in h2h if t.get("team", {}).get("displayName") == home), None)
+    if not home_entry or not home_entry.get("events"):
+        return []
+    last = home_entry["events"][0]
+    when = last.get("gameDate", "")[:10]
+    score = last.get("score", "?")
+    result_team = home if last.get("homeTeamId") == home_entry["team"]["id"] else away
+    label = "LAST MEETING" if lang == 0 else "上次交锋"
+    home_disp, away_disp = team_name(home, lang), team_name(away, lang)
+    return ["", label, _divider(), f"{when}  {home_disp} {score} {away_disp}"]
+
+def _leaders_lines(summary: dict, lang: int) -> list[str]:
+    """Live top performer per stat category per team — who's actually
+    standing out so far, not just the box score totals."""
+    leaders = summary.get("leaders", [])
+    if not leaders:
+        return []
+    label = "STANDOUTS" if lang == 0 else "焦点表现"
+    lines = ["", label, _divider()]
+    for team_block in leaders:
+        tname = team_block.get("team", {}).get("displayName", "?")
+        disp = team_name(tname, lang)
+        picks = []
+        for cat in team_block.get("leaders", []):
+            top = cat.get("leaders", [{}])[0] if cat.get("leaders") else None
+            if not top:
+                continue
+            athlete_name = top.get("athlete", {}).get("lastName") or top.get("athlete", {}).get("fullName", "?")
+            picks.append(f"{cat.get('displayName', '?')}: {athlete_name} ({top.get('displayValue', '?')})")
+        if picks:
+            lines.append(f"{team_emoji(tname)} {disp}  " + " · ".join(picks))
+    return lines if len(lines) > 3 else []
+
+def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: str) -> tuple[str, str] | None:
     """One-time fixture block at kickoff: venue/city, kickoff time, round,
-    broadcast, referee, then a formation-grouped visual lineup (jersey
-    numbers, not just names) for both teams. EN+CN, matching the scoreboard's
-    box style. Returns None if ESPN hasn't exposed rosters yet."""
+    broadcast, referee, group standings, last meeting, then a formation-
+    grouped visual lineup (jersey numbers, not just names) for both teams,
+    plus live standout-performer stats. Returns (en_message, cn_message) —
+    two separate Discord messages, since standings+lineups+standouts
+    combined routinely exceed Discord's 2000-char single-message cap.
+    Returns None if ESPN hasn't exposed rosters yet."""
     rosters = summary.get("rosters", [])
     if not rosters:
         return None
@@ -292,6 +354,9 @@ def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: st
             ref_label = "Referee" if lang == 0 else "裁判"
             lines.append(f"🟨 {ref_label}: {referee}")
 
+        lines.extend(_standings_lines(summary, home, away, lang))
+        lines.extend(_h2h_lines(summary, home, away, lang))
+
         for r in rosters:
             r_team = r.get("team", {}).get("displayName", "?")
             formation = r.get("formation", "")
@@ -319,8 +384,9 @@ def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: st
                 label = en if lang == 0 else cn
                 if key in grouped:
                     lines.append(f"  {label}  {' · '.join(grouped[key])}")
+        lines.extend(_leaders_lines(summary, lang))
         blocks.append("\n".join(lines))
-    return "```\n" + blocks[0] + "\n```" + "\n```\n" + blocks[1] + "\n```"
+    return ("```\n" + blocks[0] + "\n```", "```\n" + blocks[1] + "\n```")
 
 def format_commentary(text: str, minute: str) -> str:
     lower = text.lower()
@@ -778,9 +844,10 @@ def main():
         # as soon as ESPN exposes the rosters (usually a few minutes
         # before/at kickoff, not pregame).
         if not lineups_posted:
-            intro_text = format_match_intro(comp, summary, home_name, away_name)
-            if intro_text:
-                post_discord(channel_id, intro_text)
+            intro_msgs = format_match_intro(comp, summary, home_name, away_name)
+            if intro_msgs:
+                post_discord(channel_id, intro_msgs[0])
+                post_discord(channel_id, intro_msgs[1])
                 lineups_posted = True
                 scoreboard_buried_by += 1
             elif current_state not in ("STATUS_SCHEDULED", ""):
