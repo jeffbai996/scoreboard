@@ -5,7 +5,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 ## What it does
 
 - Polls ESPN's scoreboard/summary endpoints every few seconds for a given match
-- Posts a one-time **match intro** (English) as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
+- Posts a one-time **match intro** (English) as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, recent form (last 5 results, color-coded), last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
 - Posts a single Discord message and **edits it in place** as the match progresses (score, clock, stats, recent commentary) instead of spamming new messages — alternates between English and Chinese every 30s
 - Posts permanent announcements for goals and cards, deduped so each event only fires once
 - Surfaces full-fidelity commentary (subs, injuries, dangerous chances, saves, VAR reviews) inside the scoreboard's "Live" section, aged out after a short window so it doesn't clutter
@@ -14,7 +14,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 
 ## What it looks like
 
-Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, head-to-head history, and a formation-grouped lineup (English only):
+Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, recent form, head-to-head history, and a formation-grouped lineup (English only):
 
 ```
 ════════════════════════════════
@@ -29,10 +29,15 @@ FIFA World Cup, Group D
 
 STANDINGS
 ────────────────────────────────
-1. United States  2-0-0  GD +5  Pts 6
-2. Australia  1-0-1  GD 0  Pts 3
-3. Türkiye  0-0-1  GD -2  Pts 0
-4. Paraguay  0-0-1  GD -3  Pts 0
+1. United States  2-0-0  GD  +5  Pts  6
+2. Australia      1-0-1  GD   0  Pts  3
+3. Türkiye         0-0-1  GD  -2  Pts  0
+4. Paraguay        0-0-1  GD  -3  Pts  0
+
+RECENT FORM
+────────────────────────────────
+🇺🇸 United States  🟩 🟩 🟨 🟩 🟥
+🇦🇺 Australia  🟩 🟥 🟩 🟨 🟩
 
 LAST MEETING
 ────────────────────────────────
@@ -54,9 +59,20 @@ LAST MEETING
 
 STANDOUTS
 ────────────────────────────────
-🇺🇸 United States  Total Shots: Dest (3) · Accurate Passes: Richards (91) · Defensive Interventions: Richards (12) · Saves: Freese (2)
-🇦🇺 Australia  Total Shots: Circati (1) · Accurate Passes: Okon-Engstler (31) · Defensive Interventions: Circati (13) · Saves: Beach (1)
+🇺🇸 United States
+  Total Shots: Dest (3)
+  Accurate Passes: Richards (91)
+  Defensive Interventions: Richards (12)
+  Saves: Freese (2)
+
+🇦🇺 Australia
+  Total Shots: Circati (1)
+  Accurate Passes: Okon-Engstler (31)
+  Defensive Interventions: Circati (13)
+  Saves: Beach (1)
 ```
+
+Recent form (last 5 results) uses color squares (🟩 win · 🟨 draw · 🟥 loss) instead of literal text or ANSI color codes — Discord only renders ANSI color on desktop, mobile shows raw escape characters as garbage, so squares are the only "colored" option that's actually cross-platform. STANDOUTS lists one stat per line per team rather than a single `·`-joined line, since the joined version wraps badly at phone width once a team has 4-5 categories.
 
 From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It alternates between an English render and a Chinese render every 30 seconds (same data, language swaps on a fixed wall-clock interval independent of poll cadence) — English:
 

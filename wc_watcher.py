@@ -265,14 +265,24 @@ def _standings_lines(summary: dict, home: str, away: str, lang: int) -> list[str
     if not group:
         return []
     label = "STANDINGS" if lang == 0 else "小组积分"
-    lines = ["", label, _divider()]
-    for e in group["standings"]["entries"]:
+    entries = group["standings"]["entries"]
+    rows = []
+    for e in entries:
         stats = {s["name"]: s["displayValue"] for s in e.get("stats", [])}
-        disp = team_name(e.get("team", "?"), lang)
-        lines.append(
-            f"{stats.get('rank', '?')}. {disp}  {stats.get('overall', '?')}"
-            f"  GD {stats.get('pointDifferential', '?')}  Pts {stats.get('points', '?')}"
-        )
+        rows.append((
+            stats.get("rank", "?"),
+            team_name(e.get("team", "?"), lang),
+            stats.get("overall", "?"),
+            stats.get("pointDifferential", "?"),
+            stats.get("points", "?"),
+        ))
+    # Pad the name column to the longest entry so GD/Pts line up regardless
+    # of "Sweden" vs "United States" — _divider()'s width alone can't do this.
+    name_width = max(_display_width(name) for _, name, _, _, _ in rows)
+    lines = ["", label, _divider()]
+    for rank, name, overall, gd, pts in rows:
+        pad = " " * (name_width - _display_width(name))
+        lines.append(f"{rank}. {name}{pad}  {overall}  GD {gd:>3}  Pts {pts:>2}")
     return lines
 
 def _h2h_lines(summary: dict, home: str, away: str, lang: int) -> list[str]:
@@ -289,6 +299,29 @@ def _h2h_lines(summary: dict, home: str, away: str, lang: int) -> list[str]:
     home_disp, away_disp = team_name(home, lang), team_name(away, lang)
     return ["", label, _divider(), f"{when}  {home_disp} {score} {away_disp}"]
 
+_FORM_RESULT_EMOJI = {"W": "🟩", "D": "🟨", "L": "🟥"}
+
+def _recent_form_lines(summary: dict, home: str, away: str, lang: int) -> list[str]:
+    """Last 5 results for each side (W/L/D), so the intro shows form coming
+    into the match, not just the standings snapshot. Color squares instead of
+    ANSI codes since those render fine on Discord mobile, unlike escape codes."""
+    blocks = summary.get("lastFiveGames", [])
+    if not blocks:
+        return []
+    label = "RECENT FORM" if lang == 0 else "近期状态"
+    lines = ["", label, _divider()]
+    for block in blocks:
+        tname = block.get("team", {}).get("displayName", "?")
+        if tname not in (home, away):
+            continue
+        events = block.get("events", [])
+        if not events:
+            continue
+        results = " ".join(_FORM_RESULT_EMOJI.get(e.get("gameResult", ""), "⬜") for e in events)
+        disp = team_name(tname, lang)
+        lines.append(f"{team_emoji(tname)} {disp}  {results}")
+    return lines if len(lines) > 3 else []
+
 def _leaders_lines(summary: dict, lang: int) -> list[str]:
     """Live top performer per stat category per team — who's actually
     standing out so far, not just the box score totals."""
@@ -297,7 +330,9 @@ def _leaders_lines(summary: dict, lang: int) -> list[str]:
         return []
     label = "STANDOUTS" if lang == 0 else "焦点表现"
     lines = ["", label, _divider()]
-    for team_block in leaders:
+    # One stat per line instead of a single "·"-joined line — the joined version
+    # wraps badly on a phone-width Discord client once a team has 4-5 categories.
+    for i, team_block in enumerate(leaders):
         tname = team_block.get("team", {}).get("displayName", "?")
         disp = team_name(tname, lang)
         picks = []
@@ -305,10 +340,21 @@ def _leaders_lines(summary: dict, lang: int) -> list[str]:
             top = cat.get("leaders", [{}])[0] if cat.get("leaders") else None
             if not top:
                 continue
-            athlete_name = top.get("athlete", {}).get("lastName") or top.get("athlete", {}).get("fullName", "?")
-            picks.append(f"{cat.get('displayName', '?')}: {athlete_name} ({top.get('displayValue', '?')})")
-        if picks:
-            lines.append(f"{team_emoji(tname)} {disp}  " + " · ".join(picks))
+            last_name = top.get("athlete", {}).get("lastName")
+            athlete_name = last_name if last_name and last_name != "null" else top.get("athlete", {}).get("fullName", "?")
+            display_value = top.get("displayValue", "?")
+            # Goals/Assists categories report "Matches: N, Goals: N" instead of a bare
+            # count early in the tournament — pull just the trailing number out of it.
+            match = re.search(r":\s*(\d+)\s*$", display_value)
+            if match:
+                display_value = match.group(1)
+            picks.append(f"{cat.get('displayName', '?')}: {athlete_name} ({display_value})")
+        if not picks:
+            continue
+        if i > 0:
+            lines.append("")
+        lines.append(f"{team_emoji(tname)} {disp}")
+        lines.extend(f"  {pick}" for pick in picks)
     return lines if len(lines) > 3 else []
 
 def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: str) -> str | None:
@@ -352,6 +398,7 @@ def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: st
         lines.append(f"🟨 Referee: {referee}")
 
     lines.extend(_standings_lines(summary, home, away, lang))
+    lines.extend(_recent_form_lines(summary, home, away, lang))
     lines.extend(_h2h_lines(summary, home, away, lang))
 
     for r in rosters:
