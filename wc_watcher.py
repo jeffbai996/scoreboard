@@ -308,8 +308,7 @@ def _recent_form_lines(summary: dict, home: str, away: str, lang: int) -> list[s
     blocks = summary.get("lastFiveGames", [])
     if not blocks:
         return []
-    label = "RECENT FORM" if lang == 0 else "近期状态"
-    lines = ["", label, _divider()]
+    rows = []
     for block in blocks:
         tname = block.get("team", {}).get("displayName", "?")
         if tname not in (home, away):
@@ -318,9 +317,18 @@ def _recent_form_lines(summary: dict, home: str, away: str, lang: int) -> list[s
         if not events:
             continue
         results = " ".join(_FORM_RESULT_EMOJI.get(e.get("gameResult", ""), "⬜") for e in events)
-        disp = team_name(tname, lang)
-        lines.append(f"{team_emoji(tname)} {disp}  {results}")
-    return lines if len(lines) > 3 else []
+        rows.append((tname, team_name(tname, lang), results))
+    if not rows:
+        return []
+    # Pad the name column to the longer of the two team names so the squares
+    # start at the same column regardless of "Sweden" vs "Netherlands".
+    name_width = max(_display_width(disp) for _, disp, _ in rows)
+    label = "RECENT FORM" if lang == 0 else "近期状态"
+    lines = ["", label, _divider()]
+    for tname, disp, results in rows:
+        pad = " " * (name_width - _display_width(disp))
+        lines.append(f"{team_emoji(tname)} {disp}{pad}  {results}")
+    return lines
 
 def _leaders_lines(summary: dict, lang: int) -> list[str]:
     """Live top performer per stat category per team — who's actually
@@ -767,7 +775,11 @@ def main():
     # instead of separate posts, so it updates silently via the same edit and
     # doesn't trigger notifications. (text, post_time) pairs, pruned by age.
     recent_commentary: list = []
-    lineups_posted = False
+    # Persisted across process restarts (unlike the rest of this function's
+    # in-memory state) so a manually-posted preview intro doesn't get
+    # duplicated when the watcher actually starts polling at kickoff.
+    intro_marker = f"/tmp/wc_intro_posted_{event_id}"
+    lineups_posted = os.path.exists(intro_marker)
     # ESPN's commentary feed doesn't give a clean "review resolved" signal,
     # just the initial "VAR Review" text — so treat any VAR mention as
     # opening a review window and let it auto-clear after VAR_REVIEW_TIMEOUT
@@ -896,6 +908,7 @@ def main():
             if intro_text:
                 post_discord(channel_id, intro_text)
                 lineups_posted = True
+                open(intro_marker, "w").close()
                 scoreboard_buried_by += 1
             elif current_state not in ("STATUS_SCHEDULED", ""):
                 # ESPN sometimes never exposes rosters for a match (data gap,
