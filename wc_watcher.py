@@ -311,14 +311,13 @@ def _leaders_lines(summary: dict, lang: int) -> list[str]:
             lines.append(f"{team_emoji(tname)} {disp}  " + " · ".join(picks))
     return lines if len(lines) > 3 else []
 
-def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: str) -> tuple[str, str] | None:
+def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: str) -> str | None:
     """One-time fixture block at kickoff: venue/city, kickoff time, round,
     broadcast, referee, group standings, last meeting, then a formation-
     grouped visual lineup (jersey numbers, not just names) for both teams,
-    plus live standout-performer stats. Returns (en_message, cn_message) —
-    two separate Discord messages, since standings+lineups+standouts
-    combined routinely exceed Discord's 2000-char single-message cap.
-    Returns None if ESPN hasn't exposed rosters yet."""
+    plus live standout-performer stats. English only — the live scoreboard
+    is where EN/CN alternation happens. Returns None if ESPN hasn't exposed
+    rosters yet."""
     rosters = summary.get("rosters", [])
     if not rosters:
         return None
@@ -332,61 +331,57 @@ def format_match_intro(scoreboard_comp: dict, summary: dict, home: str, away: st
     officials = summary.get("gameInfo", {}).get("officials", [])
     referee = next((o["displayName"] for o in officials if o.get("position", {}).get("name") == "Referee"), "")
 
-    blocks = []
-    for lang in (0, 1):
-        home_disp, away_disp = team_name(home, lang), team_name(away, lang)
-        home_e, away_e = team_emoji(home), team_emoji(away)
-        lines = [
-            _divider("═"),
-            _center(f"{home_e} {home_disp} vs {away_disp} {away_e}"),
-            _divider("═"),
-            "",
-        ]
-        if round_note:
-            lines.append(round_note)
-        if venue_name:
-            lines.append(f"📍 {venue_name}" + (f", {city}" if city else ""))
-        if kickoff_et != "?":
-            lines.append(f"🕐 {kickoff_et} / {kickoff_pt}")
-        if broadcast_names:
-            lines.append(f"📺 {', '.join(broadcast_names)}")
-        if referee:
-            ref_label = "Referee" if lang == 0 else "裁判"
-            lines.append(f"🟨 {ref_label}: {referee}")
+    lang = 0
+    home_disp, away_disp = team_name(home, lang), team_name(away, lang)
+    home_e, away_e = team_emoji(home), team_emoji(away)
+    lines = [
+        _divider("═"),
+        _center(f"{home_e} {home_disp} vs {away_disp} {away_e}"),
+        _divider("═"),
+        "",
+    ]
+    if round_note:
+        lines.append(round_note)
+    if venue_name:
+        lines.append(f"📍 {venue_name}" + (f", {city}" if city else ""))
+    if kickoff_et != "?":
+        lines.append(f"🕐 {kickoff_et} / {kickoff_pt}")
+    if broadcast_names:
+        lines.append(f"📺 {', '.join(broadcast_names)}")
+    if referee:
+        lines.append(f"🟨 Referee: {referee}")
 
-        lines.extend(_standings_lines(summary, home, away, lang))
-        lines.extend(_h2h_lines(summary, home, away, lang))
+    lines.extend(_standings_lines(summary, home, away, lang))
+    lines.extend(_h2h_lines(summary, home, away, lang))
 
-        for r in rosters:
-            r_team = r.get("team", {}).get("displayName", "?")
-            formation = r.get("formation", "")
-            starters = sorted(
-                (p for p in r.get("roster", []) if p.get("starter")),
-                key=lambda p: int(p.get("formationPlace") or 0),
-            )
-            if not starters:
-                continue
-            lines.append("")
-            disp = team_name(r_team, lang)
-            header = f"{team_emoji(r_team)} {disp}" + (f" ({formation})" if formation else "")
-            lines.append(header)
-            lines.append(_divider())
-            grouped: dict[str, list[str]] = {}
-            for p in starters:
-                name = p["athlete"].get("shortName", p["athlete"].get("displayName", "?"))
-                jersey = p.get("jersey", "")
-                tag = f"#{jersey} {name}" if jersey else name
-                bucket = _position_line(p.get("position", {}).get("name", ""))
-                en, cn = bucket if bucket else ("?", "?")
-                grouped.setdefault(f"{en} {cn}", []).append(tag)
-            for _, en, cn in POSITION_LINES:
-                key = f"{en} {cn}"
-                label = en if lang == 0 else cn
-                if key in grouped:
-                    lines.append(f"  {label}  {' · '.join(grouped[key])}")
-        lines.extend(_leaders_lines(summary, lang))
-        blocks.append("\n".join(lines))
-    return ("```\n" + blocks[0] + "\n```", "```\n" + blocks[1] + "\n```")
+    for r in rosters:
+        r_team = r.get("team", {}).get("displayName", "?")
+        formation = r.get("formation", "")
+        starters = sorted(
+            (p for p in r.get("roster", []) if p.get("starter")),
+            key=lambda p: int(p.get("formationPlace") or 0),
+        )
+        if not starters:
+            continue
+        lines.append("")
+        disp = team_name(r_team, lang)
+        header = f"{team_emoji(r_team)} {disp}" + (f" ({formation})" if formation else "")
+        lines.append(header)
+        lines.append(_divider())
+        grouped: dict[str, list[str]] = {}
+        for p in starters:
+            name = p["athlete"].get("shortName", p["athlete"].get("displayName", "?"))
+            jersey = p.get("jersey", "")
+            tag = f"#{jersey} {name}" if jersey else name
+            bucket = _position_line(p.get("position", {}).get("name", ""))
+            en, cn = bucket if bucket else ("?", "?")
+            grouped.setdefault(f"{en} {cn}", []).append(tag)
+        for _, en, cn in POSITION_LINES:
+            key = f"{en} {cn}"
+            if key in grouped:
+                lines.append(f"  {en}  {' · '.join(grouped[key])}")
+    lines.extend(_leaders_lines(summary, lang))
+    return "```\n" + "\n".join(lines) + "\n```"
 
 def format_commentary(text: str, minute: str) -> str:
     lower = text.lower()
@@ -585,17 +580,22 @@ def _render_board_lines(
             lines.append(r)
     return lines
 
+SCOREBOARD_LANG_SWITCH_SECONDS = 30  # how long each language stays up before swapping
+
+def current_scoreboard_lang(start_time: float) -> int:
+    """0 = English, 1 = Chinese — alternates on a fixed wall-clock interval
+    since match start, independent of poll cadence, so the displayed
+    language is deterministic even if polls get delayed."""
+    elapsed = time.monotonic() - start_time
+    return int(elapsed // SCOREBOARD_LANG_SWITCH_SECONDS) % 2
+
 def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None = None,
-    var_review: bool = False,
+    var_review: bool = False, lang: int = 0,
 ) -> str:
-    en = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang=0)
-    cn = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang=1)
-    return (
-        "```\n" + "\n".join(en) + "\n```"
-        + "\n```\n" + "\n".join(cn) + "\n```"
-    )
+    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang)
+    return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
     path = f"/tmp/wc_notebook_{event_id}.json"
@@ -697,6 +697,7 @@ def main():
 
     print(f"Watching event {event_id} → Discord {channel_id}")
 
+    watcher_start = time.monotonic()
     seen_commentary: set = set()
     seen_detail_uids: set = set()
     last_state = ""
@@ -844,10 +845,9 @@ def main():
         # as soon as ESPN exposes the rosters (usually a few minutes
         # before/at kickoff, not pregame).
         if not lineups_posted:
-            intro_msgs = format_match_intro(comp, summary, home_name, away_name)
-            if intro_msgs:
-                post_discord(channel_id, intro_msgs[0])
-                post_discord(channel_id, intro_msgs[1])
+            intro_text = format_match_intro(comp, summary, home_name, away_name)
+            if intro_text:
+                post_discord(channel_id, intro_text)
                 lineups_posted = True
                 scoreboard_buried_by += 1
             elif current_state not in ("STATUS_SCHEDULED", ""):
@@ -908,6 +908,7 @@ def main():
             goals_list, cards_list, stats,
             [txt for txt, _ in recent_commentary],
             var_review=var_review_active,
+            lang=current_scoreboard_lang(watcher_start),
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)

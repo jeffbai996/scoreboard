@@ -5,8 +5,8 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 ## What it does
 
 - Polls ESPN's scoreboard/summary endpoints every few seconds for a given match
-- Posts a one-time **match intro** as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
-- Posts a single Discord message and **edits it in place** as the match progresses (score, clock, stats, recent commentary) instead of spamming new messages
+- Posts a one-time **match intro** (English) as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
+- Posts a single Discord message and **edits it in place** as the match progresses (score, clock, stats, recent commentary) instead of spamming new messages — alternates between English and Chinese every 30s
 - Posts permanent announcements for goals and cards, deduped so each event only fires once
 - Surfaces full-fidelity commentary (subs, injuries, dangerous chances, saves, VAR reviews) inside the scoreboard's "Live" section, aged out after a short window so it doesn't clutter
 - Writes a live JSON "notebook" to `/tmp/wc_notebook_<event_id>.json` on every poll, so other tools/queries can read current match state without hitting ESPN again
@@ -14,7 +14,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 
 ## What it looks like
 
-Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, and a formation-grouped lineup (sent as two messages, English then Chinese, since the combined content can exceed Discord's single-message length cap):
+Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, head-to-head history, and a formation-grouped lineup (English only):
 
 ```
 ════════════════════════════════
@@ -58,7 +58,7 @@ STANDOUTS
 🇦🇺 Australia  Total Shots: Circati (1) · Accurate Passes: Okon-Engstler (31) · Defensive Interventions: Circati (13) · Saves: Beach (1)
 ```
 
-From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It posts an English block followed by a Chinese block:
+From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It alternates between an English render and a Chinese render every 30 seconds (same data, language swaps on a fixed wall-clock interval independent of poll cadence) — English:
 
 ```
 ════════════════════════════════
@@ -96,6 +96,9 @@ LIVE
 33' Harry Souttar (Australia) is shown the red card.
 33' VAR Decision: No Penalty United States.
 ```
+
+...and 30 seconds later, the same message gets edited to:
+
 ```
 ════════════════════════════════
     🇺🇸 美国 vs 澳大利亚 🇦🇺      
@@ -133,7 +136,7 @@ LIVE
 33' VAR Decision: No Penalty United States.
 ```
 
-GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block.
+GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block. The full-time/final board always renders in English regardless of the alternation cycle.
 
 ## Why it's built this way
 
