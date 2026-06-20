@@ -37,7 +37,7 @@ STANDINGS
 RECENT FORM
 ────────────────────────────────
 🇺🇸 United States  🟩 🟩 🟨 🟩 🟥
-🇦🇺 Australia  🟩 🟥 🟩 🟨 🟩
+🇦🇺 Australia      🟩 🟥 🟩 🟨 🟩
 
 LAST MEETING
 ────────────────────────────────
@@ -72,7 +72,7 @@ STANDOUTS
   Saves: Beach (1)
 ```
 
-Recent form (last 5 results) uses color squares (🟩 win · 🟨 draw · 🟥 loss) instead of literal text or ANSI color codes — Discord only renders ANSI color on desktop, mobile shows raw escape characters as garbage, so squares are the only "colored" option that's actually cross-platform. STANDOUTS lists one stat per line per team rather than a single `·`-joined line, since the joined version wraps badly at phone width once a team has 4-5 categories.
+Recent form (last 5 results) uses color squares (🟩 win · 🟨 draw · 🟥 loss) instead of literal text or ANSI color codes — Discord only renders ANSI color on desktop, mobile shows raw escape characters as garbage, so squares are the only "colored" option that's actually cross-platform. The name column is padded to the longer of the two team names so the squares line up regardless of "Sweden" vs "Netherlands". STANDOUTS lists one stat per line per team rather than a single `·`-joined line, since the joined version wraps badly at phone width once a team has 4-5 categories.
 
 From kickoff onward, the scoreboard is a single Discord message, edited in place each poll. It alternates between an English render and a Chinese render every 30 seconds (same data, language swaps on a fixed wall-clock interval independent of poll cadence) — English:
 
