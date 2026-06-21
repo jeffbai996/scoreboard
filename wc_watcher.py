@@ -188,8 +188,15 @@ def delete_discord(channel_id: str, message_id: str) -> bool:
     return True
 
 def fetch_scoreboard(event_id: str) -> dict | None:
+    # ESPN's unscoped /scoreboard call is anchored to its own "today" cutoff,
+    # which can still lag behind UTC by most of a day — a match that's
+    # already on tomorrow's UTC date (e.g. a midnight-ET kickoff) silently
+    # disappears from the unscoped response. Query an explicit 3-day window
+    # around now instead of trusting ESPN's default.
+    today = datetime.now(timezone.utc).date()
+    date_range = f"{(today - timedelta(days=1)):%Y%m%d}-{(today + timedelta(days=1)):%Y%m%d}"
     try:
-        r = requests.get(ESPN_SCOREBOARD, timeout=10)
+        r = requests.get(ESPN_SCOREBOARD, params={"dates": date_range}, timeout=10)
         r.raise_for_status()
         for e in r.json().get("events", []):
             if e["id"] == event_id:
