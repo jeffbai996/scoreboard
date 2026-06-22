@@ -28,6 +28,7 @@ _PT = timezone(timedelta(hours=-7))  # PDT (UTC-7, summer)
 
 POLL_INTERVAL = 5  # seconds
 EPHEMERAL_LIFESPAN = 60  # seconds — how long full-fidelity commentary posts stay up
+DISCORD_CONTENT_LIMIT = 2000
 
 KEY_COMMENTARY_PHRASES = [
     "goal", "penalty", "red card", "yellow card", "offside", "var",
@@ -35,6 +36,16 @@ KEY_COMMENTARY_PHRASES = [
     "dangerous", "into the net", "opens the scoring", "equalise", "equaliz",
     "substitute", "substitution", "injury", "extra time", "stoppage time",
 ]
+
+# ESPN's commentary feed has no structured "injury" flag (unlike scoringPlay/
+# redCard/yellowCard on detail entries) — a sub forced by injury only shows up
+# as this exact text pattern. Matched against the same commentary stream that
+# feeds recent_commentary, so a player who actually leaves the pitch gets a
+# permanent board entry instead of aging out after EPHEMERAL_LIFESPAN like a
+# routine sub would.
+_INJURY_SUB_RE = re.compile(
+    r"^Substitution,\s*(?P<team>[^.]+)\.\s*(?P<incoming>.+?) replaces (?P<outgoing>.+?) because of an injury\.?\s*$"
+)
 
 TEAM_EMOJIS = {
     "netherlands": "🇳🇱",
@@ -127,9 +138,21 @@ def team_name(name: str, lang: int) -> str:
         return name
     return TEAM_NAMES_CN.get(name, name)
 
+def _fit_to_discord_limit(text: str, limit: int = DISCORD_CONTENT_LIMIT) -> str:
+    """Discord rejects oversized content outright (400 BASE_TYPE_MAX_LENGTH),
+    which silently freezes the live board mid-match since the post/edit just
+    fails — truncate instead, re-closing the code fence if the board uses one."""
+    if len(text) <= limit:
+        return text
+    if text.startswith("```") and text.endswith("```"):
+        closing = "\n…\n```"
+        return text[: limit - len(closing)] + closing
+    return text[: limit - 1] + "…"
+
 def post_discord(channel_id: str, text: str) -> str | None:
     """Post a message, returning its message_id (None if posting failed
     or no bot token is configured) so callers can later edit it in place."""
+    text = _fit_to_discord_limit(text)
     if not BOT_TOKEN:
         print(f"[DISCORD] {text}")
         return None
@@ -145,6 +168,7 @@ def post_discord(channel_id: str, text: str) -> str | None:
     return r.json().get("id")
 
 def edit_discord(channel_id: str, message_id: str, text: str) -> bool:
+    text = _fit_to_discord_limit(text)
     if not BOT_TOKEN:
         print(f"[DISCORD EDIT {message_id}] {text}")
         return True
@@ -557,7 +581,7 @@ def _possession_bar(home_pct: str, away_pct: str) -> str:
 def _render_board_lines(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None,
-    var_review: bool, lang: int,
+    var_review: bool, lang: int, injuries: list | None = None,
 ) -> list[str]:
     """lang: 0 = English, 1 = Chinese. Labels split 2026-06-17:
     one full code block per language rather than bilingual inline labels."""
@@ -568,6 +592,7 @@ def _render_board_lines(
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
         "goals": ("GOALS", "进球"),
+        "injuries": ("INJURIES (OUT)", "伤退"),
         "cards": ("CARDS", "红黄牌"),
         "shots": ("SHOTS (ON TARGET)", "射门（射正）"),
         "poss": ("POSSESSION", "控球"),
@@ -601,6 +626,12 @@ def _render_board_lines(
         for c in cards:
             emoji = "🟥" if c["type"] == "red" else "🟨"
             lines.append(f"{emoji} {c['minute']} {c['player']} ({team_name(c['team'], lang)})")
+    if injuries:
+        lines.append("")
+        lines.append(headers["injuries"][lang])
+        lines.append(_divider())
+        for inj in injuries:
+            lines.append(f"🚑 {inj['minute']} {inj['player']} ({team_name(inj['team'], lang)})")
     if stats:
         h_stats = stats.get(home, {})
         a_stats = stats.get(away, {})
@@ -654,9 +685,9 @@ def current_scoreboard_lang(start_time: float) -> int:
 def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None = None,
-    var_review: bool = False, lang: int = 0,
+    var_review: bool = False, lang: int = 0, injuries: list | None = None,
 ) -> str:
-    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang)
+    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang, injuries)
     return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
@@ -714,6 +745,7 @@ def build_notebook(
     commentary_log: list,
     stats: dict,
     team_id_map: dict,
+    injuries: list | None = None,
 ) -> dict:
     # The scoreboard endpoint's detail entries only carry team.id, not
     # team.displayName -- needs the id->name map built from competitors,
@@ -745,6 +777,7 @@ def build_notebook(
         "status": status,
         "goals": goals,
         "cards": cards,
+        "injuries": injuries or [],
         "stats": stats,
         "key_commentary": commentary_log[-30:],  # last 30 key moments
     }
@@ -767,6 +800,7 @@ def main():
     away_name = ""
     team_id_map: dict = {}
     commentary_log: list = []
+    injuries: list = []  # persistent, like goals/cards — see _INJURY_SUB_RE
     scoreboard_msg_id: str | None = None
     # Bumped every time something else gets posted to the channel — if it's
     # nonzero when we reach the scoreboard step, the old scoreboard message
@@ -855,7 +889,7 @@ def main():
                 if scoreboard_msg_id:
                     final_board = render_scoreboard(
                         home_name, away_name, scores, clock, current_state,
-                        goals_list, cards_list, {},
+                        goals_list, cards_list, {}, injuries=injuries,
                     )
                     edit_discord(channel_id, scoreboard_msg_id, final_board)
                 archive_notebook(event_id)
@@ -950,6 +984,26 @@ def main():
                     var_review_until = time.monotonic() + VAR_REVIEW_TIMEOUT
                 if "goal" in lower or "red card" in lower or "yellow card" in lower:
                     continue  # already posted permanently above
+                injury_match = _INJURY_SUB_RE.match(text)
+                if injury_match:
+                    # seen_commentary alone isn't reliable dedup here — ESPN's
+                    # feed sometimes re-emits the same substitution under a new
+                    # sequence number a poll or two later (the minute can even
+                    # tick over by one), which seen_commentary's (seq, text[:40])
+                    # key doesn't catch. Goals/cards avoid this because they're
+                    # recomputed fresh from structured details every poll;
+                    # injuries are accumulated by hand, so dedupe explicitly on
+                    # (player, team) — the same player can't get hurt out twice.
+                    player = injury_match.group("outgoing").strip()
+                    team = injury_match.group("team").strip()
+                    if not any(inj["player"] == player and inj["team"] == team for inj in injuries):
+                        injuries.append({
+                            "minute": minute,
+                            "player": player,
+                            "team": team,
+                            "replaced_by": injury_match.group("incoming").strip(),
+                        })
+                    continue  # permanent entry, not ephemeral
                 # 2026-06-17: full fidelity for everything else (subs,
                 # injuries, dangerous chances, saves, etc) — shown in the
                 # scoreboard's "Live" section (edited, no notification) and
@@ -976,6 +1030,7 @@ def main():
             [txt for txt, _ in recent_commentary],
             var_review=var_review_active,
             lang=current_scoreboard_lang(watcher_start),
+            injuries=injuries,
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
@@ -1003,6 +1058,7 @@ def main():
         notebook = build_notebook(
             event_id, home_name, away_name, scores, clock,
             current_state, details, commentary_log, stats, team_id_map,
+            injuries=injuries,
         )
         write_notebook(event_id, notebook)
 
