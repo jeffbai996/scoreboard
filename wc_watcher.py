@@ -500,7 +500,18 @@ _STATUS_LABELS = {
     "STATUS_FULL_TIME": ("Full time", "全场结束"),
     "STATUS_FINAL": ("Full time", "全场结束"),
     "STATUS_SCHEDULED": ("Scheduled", "未开始"),
+    "STATUS_DELAYED": ("Delayed", "延期"),
+    "STATUS_SUSPENDED": ("Suspended", "中断"),
+    "STATUS_POSTPONED": ("Postponed", "推迟"),
+    "STATUS_ABANDONED": ("Abandoned", "终止"),
 }
+
+# Statuses where play has stopped for a reason worth surfacing (weather,
+# drinks break, etc) — ESPN gives no dedicated reason field, just a
+# start-delay/end-delay commentary play type with free text. Tracked
+# separately from goals/cards/injuries since it's a single current value
+# (cleared on resume), not an accumulating list.
+DELAY_STATUSES = ("STATUS_DELAYED", "STATUS_SUSPENDED", "STATUS_POSTPONED")
 
 # Fixed width tuned for mobile Discord code blocks — wide tables wrap
 # ugly on a phone screen, so everything below builds to fit this.
@@ -582,6 +593,7 @@ def _render_board_lines(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None,
     var_review: bool, lang: int, injuries: list | None = None,
+    delay_reason: str = "",
 ) -> list[str]:
     """lang: 0 = English, 1 = Chinese. Labels split 2026-06-17:
     one full code block per language rather than bilingual inline labels."""
@@ -591,6 +603,7 @@ def _render_board_lines(
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
+        "delay": ("⏸️ MATCH STOPPED", "⏸️ 比赛暂停"),
         "goals": ("GOALS", "进球"),
         "injuries": ("INJURIES (OUT)", "伤退"),
         "cards": ("CARDS", "红黄牌"),
@@ -609,6 +622,15 @@ def _render_board_lines(
         _center(f"· {status_label}{clock_str} ·"),
         _divider("═"),
     ]
+    if status in DELAY_STATUSES:
+        lines.append("")
+        lines.append(_center(headers["delay"][lang]))
+        if delay_reason:
+            # Reason text comes from ESPN's commentary feed as free-form
+            # English ("Delay in match for a drinks break.", weather notes,
+            # etc) — no translated variant exists, so it's shown as-is in
+            # both languages rather than mistranslating or dropping it.
+            lines.append(_center(delay_reason))
     if var_review:
         lines.append("")
         lines.append(_center(headers["var"][lang]))
@@ -686,8 +708,9 @@ def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None = None,
     var_review: bool = False, lang: int = 0, injuries: list | None = None,
+    delay_reason: str = "",
 ) -> str:
-    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang, injuries)
+    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang, injuries, delay_reason)
     return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
@@ -746,6 +769,7 @@ def build_notebook(
     stats: dict,
     team_id_map: dict,
     injuries: list | None = None,
+    delay_reason: str = "",
 ) -> dict:
     # The scoreboard endpoint's detail entries only carry team.id, not
     # team.displayName -- needs the id->name map built from competitors,
@@ -778,6 +802,7 @@ def build_notebook(
         "goals": goals,
         "cards": cards,
         "injuries": injuries or [],
+        "delay_reason": delay_reason,
         "stats": stats,
         "key_commentary": commentary_log[-30:],  # last 30 key moments
     }
@@ -801,6 +826,7 @@ def main():
     team_id_map: dict = {}
     commentary_log: list = []
     injuries: list = []  # persistent, like goals/cards — see _INJURY_SUB_RE
+    delay_reason: str = ""  # current stoppage reason, if any — see DELAY_STATUSES
     scoreboard_msg_id: str | None = None
     # Bumped every time something else gets posted to the channel — if it's
     # nonzero when we reach the scoreboard step, the old scoreboard message
@@ -837,6 +863,11 @@ def main():
         comp = event["competitions"][0]
         status = comp["status"]
         current_state = status.get("type", {}).get("name", "")
+        if current_state not in DELAY_STATUSES:
+            # Defensive clear — don't rely solely on an "end-delay" commentary
+            # item showing up; if the match has clearly resumed, drop any
+            # stale reason rather than risk it lingering on the board.
+            delay_reason = ""
         # 2026-06-17: back to ESPN's own display string (e.g. "53'")
         # instead of the mm:ss conversion — simpler, and matches what every
         # other soccer score feed shows.
@@ -975,6 +1006,11 @@ def main():
             seen_commentary.add(uid)
             if seq == 0:
                 continue
+            play_type = item.get("play", {}).get("type", {}).get("type", "")
+            if play_type == "start-delay":
+                delay_reason = text
+            elif play_type == "end-delay":
+                delay_reason = ""
             if is_key_moment(text):
                 # Goals/cards already get permanent posts from scoreboard
                 # details above; log everything to the notebook either way.
@@ -1031,6 +1067,7 @@ def main():
             var_review=var_review_active,
             lang=current_scoreboard_lang(watcher_start),
             injuries=injuries,
+            delay_reason=delay_reason,
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = post_discord(channel_id, board_text)
@@ -1058,7 +1095,7 @@ def main():
         notebook = build_notebook(
             event_id, home_name, away_name, scores, clock,
             current_state, details, commentary_log, stats, team_id_map,
-            injuries=injuries,
+            injuries=injuries, delay_reason=delay_reason,
         )
         write_notebook(event_id, notebook)
 
