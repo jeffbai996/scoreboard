@@ -605,7 +605,7 @@ def _render_board_lines(
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
         "delay": ("⏸️ MATCH STOPPED", "⏸️ 比赛暂停"),
         "goals": ("GOALS", "进球"),
-        "injuries": ("INJURIES (OUT)", "伤退"),
+        "injuries": ("INJURIES", "伤退"),
         "cards": ("CARDS", "红黄牌"),
         "shots": ("SHOTS (ON TARGET)", "射门（射正）"),
         "poss": ("POSSESSION", "控球"),
