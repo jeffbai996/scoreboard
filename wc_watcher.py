@@ -735,6 +735,37 @@ def archive_notebook(event_id: str) -> None:
     except Exception as ex:
         print(f"Notebook archive error: {ex}")
 
+def cleanup_match_messages(event_id: str, channel_id: str) -> int:
+    """Delete every Discord message a previous run of this watcher posted —
+    scoreboard posts/reposts and goal/card/injury/half/full-time
+    announcements — and clear the live notebook, so a restart or a
+    deliberate cancel doesn't strand stale messages in the channel.
+
+    Deliberately leaves the intro card (and its /tmp/wc_intro_posted_<id>
+    marker) alone: that's often posted hours ahead of kickoff, sometimes
+    manually, and isn't part of what gets duplicated/stranded on a
+    restart — only the live-tracking messages are.
+
+    Returns how many messages were deleted. No-op (returns 0) if there's no
+    live notebook for this match — a finished, archived match is a
+    deliberate end-state, not something to clean up."""
+    path = f"/tmp/wc_notebook_{event_id}.json"
+    try:
+        with open(path) as f:
+            notebook = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 0
+    ids = notebook.get("posted_message_ids", [])
+    deleted = 0
+    for mid in ids:
+        if delete_discord(channel_id, mid):
+            deleted += 1
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    return deleted
+
 def _first_participant(detail: dict) -> dict:
     # ESPN's scoreboard endpoint (/scoreboard, what the live poll loop reads)
     # and the summary endpoint (/summary?event=, header.competitions[0])
@@ -770,6 +801,7 @@ def build_notebook(
     team_id_map: dict,
     injuries: list | None = None,
     delay_reason: str = "",
+    posted_message_ids: list | None = None,
 ) -> dict:
     # The scoreboard endpoint's detail entries only carry team.id, not
     # team.displayName -- needs the id->name map built from competitors,
@@ -803,17 +835,38 @@ def build_notebook(
         "cards": cards,
         "injuries": injuries or [],
         "delay_reason": delay_reason,
+        # Every message this watcher has posted to the match channel —
+        # scoreboard posts/reposts, intro card, goal/card/half/full-time
+        # announcements. Lets a relaunch (restart or deliberate cancel)
+        # clean up everything from the previous run instead of stranding it.
+        "posted_message_ids": posted_message_ids or [],
         "stats": stats,
         "key_commentary": commentary_log[-30:],  # last 30 key moments
     }
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: wc_watcher.py <espn_event_id> <discord_channel_id>")
+        print("Usage: wc_watcher.py <espn_event_id> <discord_channel_id> [--cleanup-only]")
         sys.exit(1)
 
     event_id = sys.argv[1]
     channel_id = sys.argv[2]
+
+    if "--cleanup-only" in sys.argv[3:]:
+        # Deliberate cancel, not a relaunch — wipe this match's messages and
+        # exit instead of starting a poll loop.
+        n = cleanup_match_messages(event_id, channel_id)
+        print(f"Cleaned up {n} message(s) for event {event_id}, no watch started.")
+        return
+
+    # A relaunch (process restart, or manually re-running for the same
+    # event_id) used to leave the previous run's scoreboard/announcements
+    # stranded in the channel, plus reposting duplicates once dedup state
+    # reset. Wipe anything a prior run left behind before starting fresh —
+    # no-ops cleanly if this is genuinely the first launch (no notebook yet).
+    n = cleanup_match_messages(event_id, channel_id)
+    if n:
+        print(f"Cleared {n} stranded message(s) from a previous run before starting.")
 
     print(f"Watching event {event_id} → Discord {channel_id}")
 
@@ -827,6 +880,18 @@ def main():
     commentary_log: list = []
     injuries: list = []  # persistent, like goals/cards — see _INJURY_SUB_RE
     delay_reason: str = ""  # current stoppage reason, if any — see DELAY_STATUSES
+    posted_ids: list = []  # everything posted this run — see cleanup_match_messages
+
+    def _post(text: str) -> str | None:
+        # Tracked variant of post_discord for anything cleanup_match_messages
+        # should be able to remove on a future restart/cancel. The intro card
+        # is deliberately posted via the untracked post_discord directly (see
+        # below) since it survives restarts on purpose.
+        mid = post_discord(channel_id, text)
+        if mid:
+            posted_ids.append(mid)
+        return mid
+
     scoreboard_msg_id: str | None = None
     # Bumped every time something else gets posted to the channel — if it's
     # nonzero when we reach the scoreboard step, the old scoreboard message
@@ -913,10 +978,10 @@ def main():
         # State transitions
         if current_state != last_state:
             if current_state == "STATUS_HALFTIME":
-                post_discord(channel_id, f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                _post(f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
-                post_discord(channel_id, f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
+                _post(f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
                 if scoreboard_msg_id:
                     final_board = render_scoreboard(
                         home_name, away_name, scores, clock, current_state,
@@ -967,14 +1032,13 @@ def main():
                         t = team_id_map.get(d.get("team", {}).get("id", ""), "")
                         if t in goals_so_far:
                             goals_so_far[t] += 1
-                post_discord(channel_id,
-                    f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(goals_so_far, home_name, away_name)}")
+                _post(f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(goals_so_far, home_name, away_name)}")
                 scoreboard_buried_by += 1
             elif detail.get("redCard"):
-                post_discord(channel_id, f"🟥 **RED CARD** {d_clock} — {player} ({team_name})")
+                _post(f"🟥 **RED CARD** {d_clock} — {player} ({team_name})")
                 scoreboard_buried_by += 1
             elif detail.get("yellowCard"):
-                post_discord(channel_id, f"🟨 Yellow card {d_clock} — {player} ({team_name})")
+                _post(f"🟨 Yellow card {d_clock} — {player} ({team_name})")
                 scoreboard_buried_by += 1
 
         # Commentary + stats
@@ -1079,7 +1143,7 @@ def main():
             delay_reason=delay_reason,
         )
         if scoreboard_msg_id is None:
-            scoreboard_msg_id = post_discord(channel_id, board_text)
+            scoreboard_msg_id = _post(board_text)
             polls_since_repost = 0
         elif scoreboard_buried_by > 0 or polls_since_repost >= REPOST_EVERY_POLLS:
             # Pinning used to handle "find it again," but each pin fires a
@@ -1090,9 +1154,11 @@ def main():
             # post_discord fails silently (network blip, rate limit) and used
             # to leave the scoreboard deleted with nothing replacing it.
             old_msg_id = scoreboard_msg_id
-            new_msg_id = post_discord(channel_id, board_text)
+            new_msg_id = _post(board_text)
             if new_msg_id:
                 delete_discord(channel_id, old_msg_id)
+                if old_msg_id in posted_ids:
+                    posted_ids.remove(old_msg_id)
                 scoreboard_msg_id = new_msg_id
                 scoreboard_buried_by = 0
                 polls_since_repost = 0
@@ -1105,6 +1171,7 @@ def main():
             event_id, home_name, away_name, scores, clock,
             current_state, details, commentary_log, stats, team_id_map,
             injuries=injuries, delay_reason=delay_reason,
+            posted_message_ids=posted_ids,
         )
         write_notebook(event_id, notebook)
 
