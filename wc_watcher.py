@@ -926,16 +926,25 @@ def main():
                 archive_notebook(event_id)
                 break
             last_state = current_state
+        # uid keyed on (event kind, scorer id, team, occurrence index) rather
+        # than just (kind, scorer, team) — a brace/hat-trick (or two cautions
+        # on the same player) collapses to one uid under the simpler key, so
+        # the 2nd+ event by the same player silently never fires (caught on
+        # Mbappé's brace vs Iraq: 2nd goal showed in the scoreboard's GOALS
+        # list but never got its own announcement). The occurrence index is
+        # this detail's position among same-key entries within `details`
+        # itself, which is stable across polls — also avoids keying on the
+        # clock string, which can drift between polls for the same goal
+        # (e.g. "40'" -> "45'+2'" stoppage-time correction) and caused the
+        # same goal to repost twice before this uid scheme existed.
+        occurrence_seen_this_poll: dict = {}
         for detail in details:
             player = _scorer_name(detail)
-            # uid keyed on (event kind, scorer id, team) rather than the
-            # clock string — ESPN's "type.text" key doesn't exist on these
-            # detail entries (always None) and the clock display can drift
-            # between polls for the same goal (e.g. "40'" -> "45'+2'" stoppage
-            # time correction), so either of those alone made dedup flaky and
-            # caused the same goal to post twice.
             kind = "goal" if detail.get("scoringPlay") else "red" if detail.get("redCard") else "yellow" if detail.get("yellowCard") else "other"
-            uid = (kind, _participant_athlete_id(detail), detail.get("team", {}).get("id", ""))
+            key = (kind, _participant_athlete_id(detail), detail.get("team", {}).get("id", ""))
+            occurrence = occurrence_seen_this_poll.get(key, 0)
+            occurrence_seen_this_poll[key] = occurrence + 1
+            uid = key + (occurrence,)
             if uid in seen_detail_uids:
                 continue
             seen_detail_uids.add(uid)
