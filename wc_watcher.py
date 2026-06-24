@@ -11,6 +11,7 @@ import sys
 import time
 import json
 import re
+import signal
 import unicodedata
 import requests
 import os
@@ -939,7 +940,20 @@ def main():
     var_review_until: float = 0.0
     VAR_REVIEW_TIMEOUT = 90  # seconds
 
+    # Delete the live scoreboard on shutdown — otherwise it hangs statically.
+    # Both SIGTERM (kill) and SIGINT (Ctrl+C) set a flag; loop checks it after
+    # each sleep and breaks cleanly, then deletes the message.
+    _terminate = [False]
+
+    def _on_term(sig, frame):
+        _terminate[0] = True
+
+    signal.signal(signal.SIGTERM, _on_term)
+    signal.signal(signal.SIGINT, _on_term)
+
     while True:
+        if _terminate[0]:
+            break
         event = fetch_scoreboard(event_id)
         if event is None:
             time.sleep(POLL_INTERVAL)
@@ -1196,6 +1210,12 @@ def main():
         write_notebook(event_id, notebook)
 
         time.sleep(POLL_INTERVAL)
+        if _terminate[0]:
+            break
+
+    if _terminate[0] and scoreboard_msg_id:
+        delete_discord(channel_id, scoreboard_msg_id)
+        print(f"[shutdown] deleted live scoreboard {scoreboard_msg_id}")
 
 if __name__ == "__main__":
     main()
