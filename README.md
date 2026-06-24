@@ -78,7 +78,7 @@ From kickoff onward, the scoreboard is a single Discord message, edited in place
 
 ```
 ════════════════════════════════
-     🇺🇸 United States vs Australia 🇦🇺      
+     🇺🇸 USA vs Australia 🇦🇺     
              2 - 0              
         · 1st half 34' ·        
 ════════════════════════════════
@@ -117,7 +117,7 @@ LIVE
 
 ```
 ════════════════════════════════
-    🇺🇸 美国 vs 澳大利亚 🇦🇺      
+     🇺🇸 美国 vs 澳大利亚 🇦🇺     
              2 - 0              
          · 上半场 34' ·         
 ════════════════════════════════
