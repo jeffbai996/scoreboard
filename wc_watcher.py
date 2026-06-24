@@ -131,6 +131,23 @@ TEAM_NAMES_CN = {
     "Uzbekistan": "乌兹别克斯坦",
 }
 
+# Short names used ONLY in the scoreboard header line to prevent flush-left
+# rendering: when a full "🏴 Team vs Team 🏴" line fills BOARD_WIDTH exactly,
+# _center() adds zero padding so the title slams to both edges while the
+# shorter score/clock lines are indented — looks misaligned. Full names stay
+# everywhere else (goals, cards, stats, etc.).
+TEAM_NAMES_SHORT = {
+    "United States": "USA",
+    "Bosnia-Herzegovina": "Bosnia",
+    "Saudi Arabia": "S. Arabia",
+    "South Africa": "S. Africa",
+    "South Korea": "S. Korea",
+    "New Zealand": "N. Zealand",
+}
+TEAM_NAMES_SHORT_CN = {
+    "Congo DR": "刚果金",   # 刚果民主共和国 (12w) → 刚果金 (6w); Algeria matchup hits 32 otherwise
+}
+
 def team_name(name: str, lang: int) -> str:
     """lang: 0 = English (passthrough), 1 = Chinese (mapped, falls back
     to the English name if a team isn't in TEAM_NAMES_CN yet)."""
@@ -599,6 +616,9 @@ def _render_board_lines(
     one full code block per language rather than bilingual inline labels."""
     home_disp, away_disp = team_name(home, lang), team_name(away, lang)
     home_e, away_e = team_emoji(home), team_emoji(away)
+    _short = TEAM_NAMES_SHORT_CN if lang == 1 else TEAM_NAMES_SHORT
+    home_h = _short.get(home, home_disp)
+    away_h = _short.get(away, away_disp)
     status_label = _STATUS_LABELS.get(status, (status, status))[lang]
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
     headers = {
@@ -617,7 +637,7 @@ def _render_board_lines(
     clock_str = f" {clock}" if clock and status not in no_clock_states else ""
     lines = [
         _divider("═"),
-        _center(f"{home_e} {home_disp} vs {away_disp} {away_e}"),
+        _center(f"{home_e} {home_h} vs {away_h} {away_e}"),
         _center(score_line),
         _center(f"· {status_label}{clock_str} ·"),
         _divider("═"),
