@@ -290,6 +290,21 @@ def _position_line(name: str) -> tuple[str, str] | None:
         return ("FWD", "前锋")
     return None
 
+def _fmt_schedule_detail(detail: str) -> str:
+    """Reformat ESPN's 'Thu, June 25th at 7:00 PM EDT' → 'Thu, Jun. 25 @ 7:00 PM ET'.
+    Falls back to the raw string if the pattern doesn't match."""
+    import re
+    m = re.match(
+        r"(\w{3}),\s+(\w+)\s+(\d+)(?:st|nd|rd|th)\s+at\s+(.+?)\s+ED?T",
+        detail, re.IGNORECASE
+    )
+    if not m:
+        return detail
+    day, month, date_num, time_part = m.groups()
+    month_abbr = month[:3] + "."
+    return f"{day}, {month_abbr} {date_num} @ {time_part} ET"
+
+
 def _fmt_kickoff(date_str: str) -> tuple[str, str]:
     """ESPN dates come back UTC ('2026-06-19T19:00Z') — render ET/PT like
     schedule.py does, so the intro matches what schedule lookups already show."""
@@ -971,6 +986,8 @@ def main():
         # instead of the mm:ss conversion — simpler, and matches what every
         # other soccer score feed shows.
         clock = status.get("type", {}).get("detail", "")
+        if current_state == "STATUS_SCHEDULED":
+            clock = _fmt_schedule_detail(clock)
 
         # Build team map once
         if not home_name:
