@@ -109,8 +109,8 @@ Fouls  2 – 4
 
 LIVE
 ────────────────────────────────
-33' Harry Souttar (Australia) is shown the red card.
-33' VAR Decision: No Penalty United States.
+🟥 [33'] Harry Souttar (Australia) is shown the red card.
+🎯 [33'] VAR Decision: No Penalty United States.
 ```
 
 ...and 30 seconds later, the same message gets edited to:
@@ -148,8 +148,8 @@ LIVE
 
 实时
 ────────────────────────────────
-33' Harry Souttar (Australia) is shown the red card.
-33' VAR Decision: No Penalty United States.
+🟥 [33'] Harry Souttar (Australia) is shown the red card.
+🎯 [33'] VAR Decision: No Penalty United States.
 ```
 
 GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block. The full-time/final board always renders in English regardless of the alternation cycle.
