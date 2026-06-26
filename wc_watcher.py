@@ -532,7 +532,7 @@ _STATUS_LABELS = {
     "STATUS_IN_PROGRESS": ("In progress", "进行中"),
     "STATUS_FULL_TIME": ("Full time", "全场结束"),
     "STATUS_FINAL": ("Full time", "全场结束"),
-    "STATUS_SCHEDULED": ("Scheduled", "未开始"),
+    "STATUS_SCHEDULED": ("Sched.", "未开始"),
     "STATUS_DELAYED": ("Delayed", "延期"),
     "STATUS_SUSPENDED": ("Suspended", "中断"),
     "STATUS_POSTPONED": ("Postponed", "推迟"),

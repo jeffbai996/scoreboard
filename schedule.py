@@ -14,7 +14,7 @@ ET = timezone(timedelta(hours=-4))  # EDT (UTC-4, summer)
 PT = timezone(timedelta(hours=-7))  # PDT (UTC-7, summer)
 
 STATUS_LABELS = {
-    "STATUS_SCHEDULED": "Scheduled",
+    "STATUS_SCHEDULED": "Sched.",
     "STATUS_FIRST_HALF": "1st Half",
     "STATUS_HALFTIME": "Half Time",
     "STATUS_SECOND_HALF": "2nd Half",
