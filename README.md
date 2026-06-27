@@ -1,8 +1,8 @@
-# wc-watcher
+# scoreboard
 
-A live World Cup match tracker that posts a continuously-updating scoreboard to a Discord channel by polling ESPN's public API.
+A live World Cup match tracker that posts a continuously-updating scoreboard to a Discord channel by polling ESPN's public API. This program currently only supports soccer - the plan is to extend it to support many more.
 
-## What it does
+## Features
 
 - Polls ESPN's scoreboard/summary endpoints every few seconds for a given match
 - Posts a one-time **match intro** (English) as soon as ESPN exposes rosters: venue, city, kickoff time in ET/PT, round, broadcast, referee, group standings, recent form (last 5 results, color-coded), last head-to-head meeting, and a formation-grouped visual lineup with jersey numbers and live standout-performer stats for both teams
@@ -12,7 +12,7 @@ A live World Cup match tracker that posts a continuously-updating scoreboard to 
 - Writes a live JSON "notebook" to `/tmp/wc_notebook_<event_id>.json` on every poll, so other tools/queries can read current match state without hitting ESPN again
 - Archives the notebook to `completed/` on full time instead of deleting it, so finished-match notes stay queryable for the rest of the tournament
 
-## What it looks like
+## Demo
 
 Once per match, as soon as rosters are available, a fixture intro posts with venue/kickoff/broadcast info, standings, recent form, head-to-head history, and a formation-grouped lineup (English only):
 
@@ -154,7 +154,7 @@ LIVE
 
 GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block. The full-time/final board always renders in English regardless of the alternation cycle.
 
-## Why it's built this way
+## Interesting roadbumps
 
 ESPN exposes the same "who scored / who got carded" concept with two different JSON shapes depending on the endpoint (`scoreboard` uses `athletesInvolved`, `summary` uses `participants`) — the code normalizes both. Pass/shot accuracy fields ESPN reports are pre-rounded to one decimal, so percentages are computed from the raw counts instead, since the rounded version can look frozen for long stretches of a match even as the underlying numbers move.
 
@@ -164,11 +164,13 @@ ESPN exposes the same "who scored / who got carded" concept with two different J
 pip install -r requirements.txt
 ```
 
-Needs a Discord bot token with permission to post/edit/delete messages in the target channel. Provide it one of:
+Requires a Discord bot token with message intent and permission to post/edit/delete messages in the target channel. Provide it one of:
 
 - `DISCORD_BOT_TOKEN` environment variable, or
 - a `.env` file next to `launch_watcher.sh` containing `DISCORD_BOT_TOKEN=...` (gitignored, never commit this), or
 - `WC_ENV_FILE=/path/to/.env` pointing at one elsewhere
+
+Bot tokens can be generated and retrieved from the Discord Developer Portal.
 
 ## Usage
 
@@ -188,7 +190,7 @@ python3 schedule.py [days_ahead]
 
 Prints fixtures for today plus `days_ahead` additional days (default 2), with kickoff times in ET/PT and status.
 
-## Notes
+## Additional notes
 
 - `completed/` (archived notebooks) and `*.log` are gitignored — meant to be cleared out after the tournament ends, not kept forever.
 - No state is persisted across a process restart beyond the notebook file — if the watcher restarts mid-match, in-memory dedup for commentary resets (cosmetic duplicate notebook entries are possible; permanent goal/card announcements are unaffected since those use a separate persistent check).
