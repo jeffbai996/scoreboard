@@ -955,6 +955,19 @@ def main():
     var_review_until: float = 0.0
     VAR_REVIEW_TIMEOUT = 90  # seconds
 
+    # ESPN sometimes gets stuck in STATUS_SECOND_HALF without ever transitioning
+    # to STATUS_FULL_TIME/STATUS_FINAL (observed: Colombia vs Portugal ran 5+ hrs
+    # post-game). If status + score freeze for this long while in 2nd half or
+    # extra time, treat it as game over and force a clean shutdown.
+    FROZEN_STATE_TIMEOUT = 20 * 60  # 20 minutes
+    _frozen_state_key: tuple = ()
+    _frozen_state_since: float = 0.0
+    IN_PROGRESS_STATES = (
+        "STATUS_FIRST_HALF", "STATUS_SECOND_HALF",
+        "STATUS_IN_PROGRESS", "STATUS_HALFTIME",
+    )
+    POST_90_STATES = ("STATUS_SECOND_HALF", "STATUS_IN_PROGRESS")
+
     # Delete the live scoreboard on shutdown — otherwise it hangs statically.
     # Both SIGTERM (kill) and SIGINT (Ctrl+C) set a flag; loop checks it after
     # each sleep and breaks cleanly, then deletes the message.
@@ -1042,6 +1055,28 @@ def main():
                 archive_notebook(event_id)
                 break
             last_state = current_state
+
+        # Frozen-state watchdog: ESPN sometimes never transitions out of
+        # STATUS_SECOND_HALF after the game ends. If status + score are frozen
+        # for FROZEN_STATE_TIMEOUT while we're past the point a game should end,
+        # treat it as FT and shut down cleanly.
+        if current_state in POST_90_STATES:
+            state_key = (current_state, scores.get(home_name, 0), scores.get(away_name, 0))
+            now_mono = time.monotonic()
+            if state_key != _frozen_state_key:
+                _frozen_state_key = state_key
+                _frozen_state_since = now_mono
+            elif now_mono - _frozen_state_since > FROZEN_STATE_TIMEOUT:
+                print(f"[watchdog] state+score frozen for {FROZEN_STATE_TIMEOUT//60}+ min in {current_state} — forcing FT shutdown")
+                _post(f"🏁 **FULL TIME** (watchdog) | {scoreline(scores, home_name, away_name)}")
+                if scoreboard_msg_id:
+                    final_board = render_scoreboard(
+                        home_name, away_name, scores, clock, "STATUS_FULL_TIME",
+                        goals_list, cards_list, {}, injuries=injuries,
+                    )
+                    edit_discord(channel_id, scoreboard_msg_id, final_board)
+                archive_notebook(event_id)
+                break
         # uid keyed on (event kind, scorer id, team, occurrence index) rather
         # than just (kind, scorer, team) — a brace/hat-trick (or two cautions
         # on the same player) collapses to one uid under the simpler key, so
