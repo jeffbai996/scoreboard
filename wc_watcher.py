@@ -1060,7 +1060,11 @@ def main():
         # STATUS_SECOND_HALF after the game ends. If status + score are frozen
         # for FROZEN_STATE_TIMEOUT while we're past the point a game should end,
         # treat it as FT and shut down cleanly.
-        if current_state in POST_90_STATES:
+        # Guard: STATUS_IN_PROGRESS at clock < 50' is likely halftime — don't
+        # fire the watchdog then (halftime legitimately freezes score for ~15 min).
+        _clock_mins = int(clock.split(":")[0]) if clock and ":" in clock else (int(clock.rstrip("'")) if clock and clock.rstrip("'").isdigit() else 99)
+        _is_halftime_window = (current_state == "STATUS_IN_PROGRESS" and _clock_mins < 50)
+        if current_state in POST_90_STATES and not _is_halftime_window:
             state_key = (current_state, scores.get(home_name, 0), scores.get(away_name, 0))
             now_mono = time.monotonic()
             if state_key != _frozen_state_key:
