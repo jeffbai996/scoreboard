@@ -535,9 +535,13 @@ _STATUS_LABELS = {
     "STATUS_END_OF_REGULATION": ("ET", "加时赛"),
     "STATUS_EXTRA_TIME": ("Extra time", "加时赛"),
     "STATUS_OVER_TIME": ("Extra time", "加时赛"),
+    "STATUS_OVERTIME": ("Extra time", "加时赛"),          # ESPN variant (no underscore between OVER TIME)
+    "STATUS_EXTRA_TIME_HALF": ("ET half time", "加时半场"),
     "STATUS_HALFTIME_ET": ("ET half time", "加时半场"),
+    "STATUS_HALFTIME_EXTRA_TIME": ("ET half time", "加时半场"),
     "STATUS_SHOOTOUT": ("Penalties", "点球大战"),
     "STATUS_PENALTY": ("Penalties", "点球大战"),
+    "STATUS_PENALTY_KICKS": ("Penalties", "点球大战"),    # ESPN variant
     "STATUS_SCHEDULED": ("Sched.", "未开始"),
     "STATUS_DELAYED": ("Delayed", "延期"),
     "STATUS_SUSPENDED": ("Suspended", "中断"),
@@ -641,7 +645,8 @@ def _render_board_lines(
     _short = TEAM_NAMES_SHORT_CN if lang == 1 else TEAM_NAMES_SHORT
     home_h = _short.get(home, home_disp)
     away_h = _short.get(away, away_disp)
-    status_label = _STATUS_LABELS.get(status, (status, status))[lang]
+    _fallback = status.replace("STATUS_", "").replace("_", " ").title() if status else "?"
+    status_label = _STATUS_LABELS.get(status, (_fallback, _fallback))[lang]
     no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
@@ -972,13 +977,15 @@ def main():
         "STATUS_FIRST_HALF", "STATUS_SECOND_HALF",
         "STATUS_IN_PROGRESS", "STATUS_HALFTIME",
         "STATUS_END_OF_REGULATION",
-        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_HALFTIME_ET",
+        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME",
+        "STATUS_EXTRA_TIME_HALF", "STATUS_HALFTIME_ET", "STATUS_HALFTIME_EXTRA_TIME",
         "STATUS_SHOOTOUT", "STATUS_PENALTY",
     )
     POST_90_STATES = (
         "STATUS_SECOND_HALF", "STATUS_IN_PROGRESS",
         "STATUS_END_OF_REGULATION",
-        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME",
+        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME",
+        "STATUS_EXTRA_TIME_HALF", "STATUS_HALFTIME_EXTRA_TIME",
         "STATUS_SHOOTOUT", "STATUS_PENALTY",
     )
 
@@ -1061,7 +1068,7 @@ def main():
             elif current_state == "STATUS_END_OF_REGULATION":
                 _post(f"⏱️ **END OF REGULATION** | {scoreline(scores, home_name, away_name)} — going to extra time")
                 scoreboard_buried_by += 1
-            elif current_state in ("STATUS_EXTRA_TIME", "STATUS_OVER_TIME"):
+            elif current_state in ("STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME"):
                 _post(f"**Extra time** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
             elif current_state == "STATUS_HALFTIME_ET":
