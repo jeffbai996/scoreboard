@@ -532,6 +532,11 @@ _STATUS_LABELS = {
     "STATUS_IN_PROGRESS": ("In progress", "进行中"),
     "STATUS_FULL_TIME": ("Full time", "全场结束"),
     "STATUS_FINAL": ("Full time", "全场结束"),
+    "STATUS_EXTRA_TIME": ("Extra time", "加时赛"),
+    "STATUS_OVER_TIME": ("Extra time", "加时赛"),
+    "STATUS_HALFTIME_ET": ("ET half time", "加时半场"),
+    "STATUS_SHOOTOUT": ("Penalties", "点球大战"),
+    "STATUS_PENALTY": ("Penalties", "点球大战"),
     "STATUS_SCHEDULED": ("Sched.", "未开始"),
     "STATUS_DELAYED": ("Delayed", "延期"),
     "STATUS_SUSPENDED": ("Suspended", "中断"),
@@ -959,14 +964,20 @@ def main():
     # to STATUS_FULL_TIME/STATUS_FINAL (observed: Colombia vs Portugal ran 5+ hrs
     # post-game). If status + score freeze for this long while in 2nd half or
     # extra time, treat it as game over and force a clean shutdown.
-    FROZEN_STATE_TIMEOUT = 20 * 60  # 20 minutes
+    FROZEN_STATE_TIMEOUT = 40 * 60  # 40 minutes — bumped to cover AET (2x15 min + breaks)
     _frozen_state_key: tuple = ()
     _frozen_state_since: float = 0.0
     IN_PROGRESS_STATES = (
         "STATUS_FIRST_HALF", "STATUS_SECOND_HALF",
         "STATUS_IN_PROGRESS", "STATUS_HALFTIME",
+        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_HALFTIME_ET",
+        "STATUS_SHOOTOUT", "STATUS_PENALTY",
     )
-    POST_90_STATES = ("STATUS_SECOND_HALF", "STATUS_IN_PROGRESS")
+    POST_90_STATES = (
+        "STATUS_SECOND_HALF", "STATUS_IN_PROGRESS",
+        "STATUS_EXTRA_TIME", "STATUS_OVER_TIME",
+        "STATUS_SHOOTOUT", "STATUS_PENALTY",
+    )
 
     # Delete the live scoreboard on shutdown — otherwise it hangs statically.
     # Both SIGTERM (kill) and SIGINT (Ctrl+C) set a flag; loop checks it after
@@ -1044,6 +1055,15 @@ def main():
             if current_state == "STATUS_HALFTIME":
                 _post(f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
+            elif current_state in ("STATUS_EXTRA_TIME", "STATUS_OVER_TIME"):
+                _post(f"**Extra time** | {scoreline(scores, home_name, away_name)}")
+                scoreboard_buried_by += 1
+            elif current_state == "STATUS_HALFTIME_ET":
+                _post(f"⏸️ **ET HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                scoreboard_buried_by += 1
+            elif current_state in ("STATUS_SHOOTOUT", "STATUS_PENALTY"):
+                _post(f"🎯 **PENALTY SHOOTOUT** | {scoreline(scores, home_name, away_name)}")
+                scoreboard_buried_by += 1
             elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
                 _post(f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
                 if scoreboard_msg_id:
@@ -1065,7 +1085,10 @@ def main():
         _clock_mins = int(clock.split(":")[0]) if clock and ":" in clock else (int(clock.rstrip("'")) if clock and clock.rstrip("'").isdigit() else 99)
         _is_halftime_window = (current_state == "STATUS_IN_PROGRESS" and _clock_mins < 50)
         if current_state in POST_90_STATES and not _is_halftime_window:
-            state_key = (current_state, scores.get(home_name, 0), scores.get(away_name, 0))
+            # Include the display clock in the key so stoppage-time ticks (90'+1', 90'+2', …)
+            # reset the frozen timer — ESPN holds STATUS_SECOND_HALF through all of stoppage
+            # time, so state+score alone would look frozen while the clock is still running.
+            state_key = (current_state, scores.get(home_name, 0), scores.get(away_name, 0), clock)
             now_mono = time.monotonic()
             if state_key != _frozen_state_key:
                 _frozen_state_key = state_key
