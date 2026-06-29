@@ -154,6 +154,46 @@ LIVE
 
 GOALS/CARDS/MATCH STATS/LIVE sections only appear once there's something to show in them — a 0' kickoff scoreboard is just the header block. The full-time/final board always renders in English regardless of the alternation cycle.
 
+## Penalty shootouts
+
+When a match goes to penalties, the watcher:
+
+- Posts a one-time **🎯 PENALTY SHOOTOUT** announcement (fires once on transition, never repeated)
+- Posts a permanent announcement for **every individual kick** as it lands — a green circle for goals, red for saves/misses, including the round number and player name
+- Adds a **PENALTIES / 点球大战** section to the scoreboard showing the ⬤/✕ dot grid per team, with individual player names and results below each row — works for any number of rounds (handles sudden death beyond the initial five)
+- Shows the **score in `n(n)` format** while pens are live and on the final board — e.g. `1(4) – 1(3)` (regulation score + penalty tally)
+- The final **FULL TIME (AET + pens)** announcement includes the same `n(n)` format
+
+Example scoreboard during a shootout:
+
+```
+════════════════════════════════
+  🇩🇪 Germany vs Paraguay 🇵🇾   
+         1(3) – 1(4)           
+       · Final (pens) ·        
+════════════════════════════════
+
+PENALTIES
+────────────────────────────────
+         3 – 4          
+🇩🇪 Germany
+   ✕ ⬤ ⬤ ✕ ⬤ ✕
+   1. Havertz ✕
+   2. Kimmich ⬤
+   3. Musiala ⬤
+   4. Woltemade ✕
+   5. Amiri ⬤
+   6. Tah ✕
+🇵🇾 Paraguay
+   ⬤ ⬤ ⬤ ✕ ✕ ⬤
+   1. Maurício ⬤
+   2. Gómez ⬤
+   3. Galarza ⬤
+   4. Sanabria ✕
+   5. Balbuena ✕
+   6. Canale ⬤
+```
+
 ## Why it's built this way
 
 ESPN exposes the same "who scored / who got carded" concept with two different JSON shapes depending on the endpoint (`scoreboard` uses `athletesInvolved`, `summary` uses `participants`) — the code normalizes both. Pass/shot accuracy fields ESPN reports are pre-rounded to one decimal, so percentages are computed from the raw counts instead, since the rounded version can look frozen for long stretches of a match even as the underlying numbers move.

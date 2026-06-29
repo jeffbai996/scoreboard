@@ -542,6 +542,12 @@ _STATUS_LABELS = {
     "STATUS_SHOOTOUT": ("Penalties", "点球大战"),
     "STATUS_PENALTY": ("Penalties", "点球大战"),
     "STATUS_PENALTY_KICKS": ("Penalties", "点球大战"),    # ESPN variant
+    "STATUS_FINAL_PEN": ("Final (pens)", "点球决出"),    # post-match final-pen result
+    # AET end states — ESPN emits descriptive text ("AET", "AET-Pens") in the
+    # detail field for these, not a clock. Map them so the fallback never fires.
+    "STATUS_END_OF_EXTRA_TIME": ("Full time (AET)", "加时结束"),
+    "STATUS_AET": ("Full time (AET)", "加时结束"),
+    "STATUS_AET_PENS": ("Penalties", "点球大战"),    # AET → pens transition state
     "STATUS_SCHEDULED": ("Sched.", "未开始"),
     "STATUS_DELAYED": ("Delayed", "延期"),
     "STATUS_SUSPENDED": ("Suspended", "中断"),
@@ -632,11 +638,81 @@ def _possession_bar(home_pct: str, away_pct: str) -> str:
     filled = round(bar_width * h / 100)
     return "[" + "█" * filled + "░" * (bar_width - filled) + "]"
 
+PENALTY_STATES = (
+    "STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS",
+    "STATUS_FINAL_PEN",
+)
+
+
+def _pen_board_lines(pen_shots: list, home: str, away: str, lang: int) -> list[str]:
+    """Render an X/O shootout grid for the scoreboard.
+
+    pen_shots is the `summary.shootout` list:
+      [{"team": "Germany", "shots": [{"shotNumber": 1, "player": "...", "didScore": bool}, ...]}, ...]
+
+    Works for any number of rounds (handles sudden death beyond 5).
+    """
+    if not pen_shots:
+        return []
+
+    label = "PENALTIES" if lang == 0 else "点球大战"
+    by_team: dict[str, list[dict]] = {}
+    for block in pen_shots:
+        by_team[block["team"]] = block.get("shots", [])
+
+    # Determine number of rounds taken so far
+    max_rounds = max((len(shots) for shots in by_team.values()), default=0)
+    if max_rounds == 0:
+        return []
+
+    # Score counts
+    home_scored = sum(1 for s in by_team.get(home, []) if s.get("didScore"))
+    away_scored = sum(1 for s in by_team.get(away, []) if s.get("didScore"))
+
+    lines = ["", label, _divider()]
+    lines.append(_center(f"{home_scored} – {away_scored}"))
+    lines.append("")
+
+    home_e, away_e = team_emoji(home), team_emoji(away)
+    home_disp = team_name(home, lang)
+    away_disp = team_name(away, lang)
+
+    for team_disp, team_key, emoji in (
+        (home_disp, home, home_e),
+        (away_disp, away, away_e),
+    ):
+        shots = by_team.get(team_key, [])
+        dots = []
+        for sh in shots:
+            if sh.get("didScore"):
+                dots.append("⬤")   # scored
+            else:
+                dots.append("✕")   # missed/saved
+        # Pad with · for rounds the other team has taken that this team hasn't yet
+        while len(dots) < max_rounds:
+            dots.append("·")
+
+        row = " ".join(dots)
+        # Name + dots on one line; player names on the next indented
+        lines.append(f"{emoji} {team_disp}")
+        lines.append(f"   {row}")
+        for sh in shots:
+            mark = "⬤" if sh.get("didScore") else "✕"
+            player_last = sh.get("player", "?").split()[-1]
+            lines.append(f"   {sh['shotNumber']}. {player_last} {mark}")
+        lines.append("")
+
+    # Remove trailing blank
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
 def _render_board_lines(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None,
     var_review: bool, lang: int, injuries: list | None = None,
-    delay_reason: str = "",
+    delay_reason: str = "", pen_shots: list | None = None,
 ) -> list[str]:
     """lang: 0 = English, 1 = Chinese. Labels split 2026-06-17:
     one full code block per language rather than bilingual inline labels."""
@@ -647,7 +723,15 @@ def _render_board_lines(
     away_h = _short.get(away, away_disp)
     _fallback = status.replace("STATUS_", "").replace("_", " ").title() if status else "?"
     status_label = _STATUS_LABELS.get(status, (_fallback, _fallback))[lang]
-    no_clock_states = ("STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL")
+    no_clock_states = (
+        "STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL",
+        "STATUS_FINAL_PEN",
+        # ESPN's detail field for these statuses is descriptive text ("Penalties",
+        # "AET", "FT-Pens"), not a clock — don't show it as a clock.
+        "STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS",
+        "STATUS_END_OF_REGULATION",
+        "STATUS_END_OF_EXTRA_TIME", "STATUS_AET", "STATUS_AET_PENS",
+    )
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
         "delay": ("⏸️ MATCH STOPPED", "⏸️ 比赛暂停"),
@@ -660,7 +744,17 @@ def _render_board_lines(
         "live": ("LIVE", "实时"),
     }
 
-    score_line = f"{scores.get(home, 0)} - {scores.get(away, 0)}"
+    h_score = scores.get(home, 0)
+    a_score = scores.get(away, 0)
+    if status in PENALTY_STATES and pen_shots:
+        # Show regulation score + penalty tally: e.g. "1(4) – 1(3)"
+        home_pen = sum(1 for b in pen_shots for s in b.get("shots", [])
+                       if b["team"] == home and s.get("didScore"))
+        away_pen = sum(1 for b in pen_shots for s in b.get("shots", [])
+                       if b["team"] == away and s.get("didScore"))
+        score_line = f"{h_score}({home_pen}) – {a_score}({away_pen})"
+    else:
+        score_line = f"{h_score} - {a_score}"
     clock_str = f" {clock}" if clock and status not in no_clock_states else ""
     lines = [
         _divider("═"),
@@ -669,6 +763,8 @@ def _render_board_lines(
         _center(f"· {status_label}{clock_str} ·"),
         _divider("═"),
     ]
+    if status in PENALTY_STATES and pen_shots:
+        lines.extend(_pen_board_lines(pen_shots, home, away, lang))
     if status in DELAY_STATUSES:
         lines.append("")
         lines.append(_center(headers["delay"][lang]))
@@ -755,9 +851,9 @@ def render_scoreboard(
     home: str, away: str, scores: dict, clock: str, status: str,
     goals: list, cards: list, stats: dict, recent: list | None = None,
     var_review: bool = False, lang: int = 0, injuries: list | None = None,
-    delay_reason: str = "",
+    delay_reason: str = "", pen_shots: list | None = None,
 ) -> str:
-    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang, injuries, delay_reason)
+    lines = _render_board_lines(home, away, scores, clock, status, goals, cards, stats, recent, var_review, lang, injuries, delay_reason, pen_shots)
     return "```\n" + "\n".join(lines) + "\n```"
 
 def write_notebook(event_id: str, notebook: dict) -> None:
@@ -939,6 +1035,8 @@ def main():
             posted_ids.append(mid)
         return mid
 
+    pen_shots: list = []        # shootout data from summary; populated once penalties start
+    _pen_announced: set = set() # (team, shotNumber) tuples we've already posted
     scoreboard_msg_id: str | None = None
     # Bumped every time something else gets posted to the channel — if it's
     # nonzero when we reach the scoreboard step, the old scoreboard message
@@ -979,8 +1077,10 @@ def main():
         "STATUS_END_OF_REGULATION",
         "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME",
         "STATUS_EXTRA_TIME_HALF", "STATUS_HALFTIME_ET", "STATUS_HALFTIME_EXTRA_TIME",
-        "STATUS_SHOOTOUT", "STATUS_PENALTY",
+        "STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS",
+        "STATUS_END_OF_EXTRA_TIME", "STATUS_AET", "STATUS_AET_PENS",
     )
+    FINAL_STATES = ("STATUS_FULL_TIME", "STATUS_FINAL", "STATUS_FINAL_PEN")
     POST_90_STATES = (
         "STATUS_SECOND_HALF", "STATUS_IN_PROGRESS",
         "STATUS_END_OF_REGULATION",
@@ -1074,15 +1174,30 @@ def main():
             elif current_state == "STATUS_HALFTIME_ET":
                 _post(f"⏸️ **ET HALF TIME** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
-            elif current_state in ("STATUS_SHOOTOUT", "STATUS_PENALTY"):
+            elif current_state in ("STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS"):
+                # Only post the shootout announcement once — state stays here
+                # through all of penalties; last_state guard already prevents
+                # re-entry, so this fires exactly once per match.
                 _post(f"🎯 **PENALTY SHOOTOUT** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
-            elif current_state in ("STATUS_FULL_TIME", "STATUS_FINAL"):
-                _post(f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
+            elif current_state in FINAL_STATES:
+                if current_state == "STATUS_FINAL_PEN":
+                    # Build final pen scoreline: n(n) format
+                    home_pen = sum(1 for b in pen_shots for s in b.get("shots", [])
+                                   if b["team"] == home_name and s.get("didScore"))
+                    away_pen = sum(1 for b in pen_shots for s in b.get("shots", [])
+                                   if b["team"] == away_name and s.get("didScore"))
+                    h = scores.get(home_name, 0)
+                    a = scores.get(away_name, 0)
+                    ft_line = f"{home_name} {h}({home_pen}) – {a}({away_pen}) {away_name}"
+                    _post(f"🏁 **FULL TIME (AET + pens)** | {ft_line}")
+                else:
+                    _post(f"🏁 **FULL TIME** | {scoreline(scores, home_name, away_name)}")
                 if scoreboard_msg_id:
                     final_board = render_scoreboard(
                         home_name, away_name, scores, clock, current_state,
                         goals_list, cards_list, {}, injuries=injuries,
+                        pen_shots=pen_shots or None,
                     )
                     edit_discord(channel_id, scoreboard_msg_id, final_board)
                 archive_notebook(event_id)
@@ -1113,6 +1228,7 @@ def main():
                     final_board = render_scoreboard(
                         home_name, away_name, scores, clock, "STATUS_FULL_TIME",
                         goals_list, cards_list, {}, injuries=injuries,
+                        pen_shots=pen_shots or None,
                     )
                     edit_discord(channel_id, scoreboard_msg_id, final_board)
                 archive_notebook(event_id)
@@ -1195,6 +1311,32 @@ def main():
             stat_map = {s["name"]: s.get("displayValue", "?") for s in box.get("statistics", [])}
             stats[tname] = stat_map
 
+        # Penalty shootout data — populated from summary once we're in a pen state
+        if current_state in PENALTY_STATES or pen_shots:
+            raw_shootout = summary.get("shootout", [])
+            if raw_shootout:
+                pen_shots = raw_shootout
+
+        # Announce individual penalty kicks as they land (goal or save)
+        if pen_shots:
+            home_e_p, away_e_p = team_emoji(home_name), team_emoji(away_name)
+            for block in pen_shots:
+                team_key = block["team"]
+                t_emoji = home_e_p if team_key == home_name else away_e_p
+                t_disp = team_name(team_key, current_scoreboard_lang(watcher_start))
+                for sh in block.get("shots", []):
+                    key = (team_key, sh["shotNumber"])
+                    if key in _pen_announced:
+                        continue
+                    _pen_announced.add(key)
+                    p = sh.get("player", "?")
+                    n = sh["shotNumber"]
+                    if sh.get("didScore"):
+                        _post(f"🟢 **Pen #{n}** {t_emoji} {t_disp} — {p} **SCORES**")
+                    else:
+                        _post(f"🔴 **Pen #{n}** {t_emoji} {t_disp} — {p} **SAVED/MISSED**")
+                    scoreboard_buried_by += 1
+
         for item in commentary:
             seq = item.get("sequence", -1)
             text = item.get("text", "")
@@ -1267,6 +1409,7 @@ def main():
             lang=current_scoreboard_lang(watcher_start),
             injuries=injuries,
             delay_reason=delay_reason,
+            pen_shots=pen_shots or None,
         )
         if scoreboard_msg_id is None:
             scoreboard_msg_id = _post(board_text)
