@@ -532,6 +532,7 @@ _STATUS_LABELS = {
     "STATUS_IN_PROGRESS": ("In progress", "进行中"),
     "STATUS_FULL_TIME": ("Full time", "全场结束"),
     "STATUS_FINAL": ("Full time", "全场结束"),
+    "STATUS_END_OF_REGULATION": ("ET", "加时赛"),
     "STATUS_EXTRA_TIME": ("Extra time", "加时赛"),
     "STATUS_OVER_TIME": ("Extra time", "加时赛"),
     "STATUS_HALFTIME_ET": ("ET half time", "加时半场"),
@@ -970,11 +971,13 @@ def main():
     IN_PROGRESS_STATES = (
         "STATUS_FIRST_HALF", "STATUS_SECOND_HALF",
         "STATUS_IN_PROGRESS", "STATUS_HALFTIME",
+        "STATUS_END_OF_REGULATION",
         "STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_HALFTIME_ET",
         "STATUS_SHOOTOUT", "STATUS_PENALTY",
     )
     POST_90_STATES = (
         "STATUS_SECOND_HALF", "STATUS_IN_PROGRESS",
+        "STATUS_END_OF_REGULATION",
         "STATUS_EXTRA_TIME", "STATUS_OVER_TIME",
         "STATUS_SHOOTOUT", "STATUS_PENALTY",
     )
@@ -1054,6 +1057,9 @@ def main():
         if current_state != last_state:
             if current_state == "STATUS_HALFTIME":
                 _post(f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                scoreboard_buried_by += 1
+            elif current_state == "STATUS_END_OF_REGULATION":
+                _post(f"⏱️ **END OF REGULATION** | {scoreline(scores, home_name, away_name)} — going to extra time")
                 scoreboard_buried_by += 1
             elif current_state in ("STATUS_EXTRA_TIME", "STATUS_OVER_TIME"):
                 _post(f"**Extra time** | {scoreline(scores, home_name, away_name)}")
