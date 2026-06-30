@@ -1139,6 +1139,13 @@ def main():
         for c in comp.get("competitors", []):
             scores[c["team"]["displayName"]] = int(c.get("score", 0))
 
+        # If the very first poll sees a final state (e.g. watcher launched after
+        # the match already ended), exit immediately — nothing to watch and we
+        # don't want to keep editing a stale scoreboard forever.
+        if last_state == "" and current_state in FINAL_STATES:
+            print(f"[early-exit] match {event_id} already finished ({current_state}) — nothing to watch")
+            break
+
         # Key event details (goals/cards — always post these)
         details = comp.get("details", [])
         goals_list = [
