@@ -1276,8 +1276,8 @@ def main():
             seen_detail_uids.add(uid)
 
             d_clock = detail.get("clock", {}).get("displayValue", "?'")
-            team_name = team_id_map.get(detail.get("team", {}).get("id", ""), "")
-            emoji = team_emoji(team_name)
+            detail_team = team_id_map.get(detail.get("team", {}).get("id", ""), "")
+            emoji = team_emoji(detail_team)
 
             if detail.get("scoringPlay"):
                 own = " (OWN GOAL)" if detail.get("ownGoal") else ""
@@ -1296,10 +1296,10 @@ def main():
                 _post(f"⚽ **GOAL{own}{pk}!** {d_clock} — {player} {emoji}\n> {scoreline(goals_so_far, home_name, away_name)}")
                 scoreboard_buried_by += 1
             elif detail.get("redCard"):
-                _post(f"🟥 **RED CARD** {d_clock} — {player} ({team_name})")
+                _post(f"🟥 **RED CARD** {d_clock} — {player} ({detail_team})")
                 scoreboard_buried_by += 1
             elif detail.get("yellowCard"):
-                _post(f"🟨 Yellow card {d_clock} — {player} ({team_name})")
+                _post(f"🟨 Yellow card {d_clock} — {player} ({detail_team})")
                 scoreboard_buried_by += 1
 
         # Commentary + stats
