@@ -1226,7 +1226,10 @@ def main():
         # treat it as FT and shut down cleanly.
         # Guard: STATUS_IN_PROGRESS at clock < 50' is likely halftime — don't
         # fire the watchdog then (halftime legitimately freezes score for ~15 min).
-        _clock_mins = int(clock.split(":")[0]) if clock and ":" in clock else (int(clock.rstrip("'")) if clock and clock.rstrip("'").isdigit() else 99)
+        # Defensive parse — clock can be "90'+3'", "45:00", "Mon, Jun. 29 @ 9PM ET"
+        # (scheduled), or empty. Only parse as minutes when it looks numeric.
+        _cm = clock.split(":")[0] if clock and ":" in clock else clock.rstrip("'") if clock else ""
+        _clock_mins = int(_cm) if _cm.isdigit() else 99
         _is_halftime_window = (current_state == "STATUS_IN_PROGRESS" and _clock_mins < 50)
         if current_state in POST_90_STATES and not _is_halftime_window:
             # Include the display clock in the key so stoppage-time ticks (90'+1', 90'+2', …)
