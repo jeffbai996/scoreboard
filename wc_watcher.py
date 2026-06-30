@@ -1017,6 +1017,7 @@ def main():
     seen_commentary: set = set()
     seen_detail_uids: set = set()
     last_state = ""
+    announced_states: set = set()  # states whose transition message has already been posted
     home_name = ""
     away_name = ""
     team_id_map: dict = {}
@@ -1167,27 +1168,34 @@ def main():
             for d in details if d.get("redCard") or d.get("yellowCard")
         ]
 
-        # State transitions
+        # State transitions — use announced_states (a set) instead of just
+        # last_state so we don't re-post if ESPN oscillates between two states
+        # (e.g. STATUS_END_OF_REGULATION ↔ STATUS_EXTRA_TIME on consecutive polls).
         if current_state != last_state:
-            if current_state == "STATUS_HALFTIME":
-                _post(f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
-                scoreboard_buried_by += 1
-            elif current_state == "STATUS_END_OF_REGULATION":
-                _post(f"⏱️ **END OF REGULATION** | {scoreline(scores, home_name, away_name)} — going to extra time")
-                scoreboard_buried_by += 1
-            elif current_state in ("STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME"):
-                _post(f"**Extra time** | {scoreline(scores, home_name, away_name)}")
-                scoreboard_buried_by += 1
-            elif current_state == "STATUS_HALFTIME_ET":
-                _post(f"⏸️ **ET HALF TIME** | {scoreline(scores, home_name, away_name)}")
-                scoreboard_buried_by += 1
-            elif current_state in ("STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS"):
-                # Only post the shootout announcement once — state stays here
-                # through all of penalties; last_state guard already prevents
-                # re-entry, so this fires exactly once per match.
+            # ET states collapse into one announcement bucket so any ET variant
+            # only ever fires the "Extra time" message once per match.
+            ET_STATES = frozenset({"STATUS_EXTRA_TIME", "STATUS_OVER_TIME", "STATUS_OVERTIME"})
+            announce_key = "ET" if current_state in ET_STATES else current_state
+
+            if announce_key not in announced_states:
+                announced_states.add(announce_key)
+                if current_state == "STATUS_HALFTIME":
+                    _post(f"⏸️ **HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                    scoreboard_buried_by += 1
+                elif current_state == "STATUS_END_OF_REGULATION":
+                    _post(f"⏱️ **END OF REGULATION** | {scoreline(scores, home_name, away_name)} — going to extra time")
+                    scoreboard_buried_by += 1
+                elif current_state in ET_STATES:
+                    _post(f"**Extra time** | {scoreline(scores, home_name, away_name)}")
+                    scoreboard_buried_by += 1
+                elif current_state == "STATUS_HALFTIME_ET":
+                    _post(f"⏸️ **ET HALF TIME** | {scoreline(scores, home_name, away_name)}")
+                    scoreboard_buried_by += 1
+            if current_state in ("STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS") and "SHOOTOUT" not in announced_states:
+                announced_states.add("SHOOTOUT")
                 _post(f"🎯 **PENALTY SHOOTOUT** | {scoreline(scores, home_name, away_name)}")
                 scoreboard_buried_by += 1
-            elif current_state in FINAL_STATES:
+            elif current_state in FINAL_STATES and "FINAL" not in announced_states:
                 if current_state == "STATUS_FINAL_PEN":
                     # Build final pen scoreline: n(n) format
                     home_pen = sum(1 for b in pen_shots for s in b.get("shots", [])
@@ -1207,6 +1215,7 @@ def main():
                         pen_shots=pen_shots or None,
                     )
                     edit_discord(channel_id, scoreboard_msg_id, final_board)
+                announced_states.add("FINAL")
                 archive_notebook(event_id)
                 break
             last_state = current_state
