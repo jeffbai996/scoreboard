@@ -7,7 +7,7 @@ Usage:
   python3 setup_crons.py <channel_id> <game_id> [<game_id> ...]
 
 Example:
-  python3 setup_crons.py 1515472801983758348 760490 760491 760492
+  python3 setup_crons.py YOUR_DISCORD_CHANNEL_ID 760490 760491 760492
 """
 import os
 import sys
