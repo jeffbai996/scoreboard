@@ -228,6 +228,17 @@ python3 schedule.py [days_ahead]
 
 Prints fixtures for today plus `days_ahead` additional days (default 2), with kickoff times in ET/PT and status.
 
+### Cron scheduling
+
+```bash
+python3 setup_crons.py <DISCORD_CHANNEL_ID> <EVENT_ID> [<EVENT_ID> ...]
+```
+
+Looks up each event's kickoff time from ESPN, converts UTC to the server's
+local time, and writes a crontab entry that fires `launch_watcher.sh` a few
+minutes before kickoff — so a batch of matches can be queued ahead of time
+instead of launched by hand as each one starts.
+
 ## Notes
 
 - `completed/` (archived notebooks) and `*.log` are gitignored — meant to be cleared out after the tournament ends, not kept forever.
