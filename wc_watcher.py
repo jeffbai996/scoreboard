@@ -167,6 +167,29 @@ def _fit_to_discord_limit(text: str, limit: int = DISCORD_CONTENT_LIMIT) -> str:
         return text[: limit - len(closing)] + closing
     return text[: limit - 1] + "…"
 
+# 429s are common under bursty posting (e.g. another bot sharing the same
+# token/channel) and Discord always tells you exactly how long to wait via
+# retry_after — typically well under a second. Retrying a couple of times
+# beats dropping the update outright, which used to freeze the scoreboard
+# mid-match (2026-07-04, Canada vs Morocco: 3 consecutive 429s right at the
+# first post left scoreboard_msg_id unset, and the archived notebook froze
+# at 90'+9' instead of catching the real 3-0 final).
+_MAX_429_RETRIES = 5
+
+def _discord_request(method: str, url: str, **kwargs) -> "requests.Response":
+    """requests call with 429 retry via Discord's own retry_after. Any other
+    status (2xx or a real error) is returned as-is for the caller to check."""
+    for attempt in range(_MAX_429_RETRIES + 1):
+        r = requests.request(method, url, timeout=10, **kwargs)
+        if r.status_code != 429 or attempt == _MAX_429_RETRIES:
+            return r
+        try:
+            retry_after = r.json().get("retry_after", 1.0)
+        except ValueError:
+            retry_after = 1.0
+        time.sleep(retry_after)
+    return r  # unreachable, keeps type-checkers happy
+
 def post_discord(channel_id: str, text: str) -> str | None:
     """Post a message, returning its message_id (None if posting failed
     or no bot token is configured) so callers can later edit it in place."""
@@ -174,11 +197,10 @@ def post_discord(channel_id: str, text: str) -> str | None:
     if not BOT_TOKEN:
         print(f"[DISCORD] {text}")
         return None
-    r = requests.post(
-        f"{DISCORD_API}/channels/{channel_id}/messages",
+    r = _discord_request(
+        "POST", f"{DISCORD_API}/channels/{channel_id}/messages",
         headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
         json={"content": text},
-        timeout=10,
     )
     if r.status_code not in (200, 201):
         print(f"Discord post failed: {r.status_code} {r.text[:200]}")
@@ -190,11 +212,10 @@ def edit_discord(channel_id: str, message_id: str, text: str) -> bool:
     if not BOT_TOKEN:
         print(f"[DISCORD EDIT {message_id}] {text}")
         return True
-    r = requests.patch(
-        f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+    r = _discord_request(
+        "PATCH", f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
         headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
         json={"content": text},
-        timeout=10,
     )
     if r.status_code not in (200, 201):
         print(f"Discord edit failed: {r.status_code} {r.text[:200]}")
@@ -206,10 +227,9 @@ def pin_discord(channel_id: str, message_id: str) -> bool:
     even though edits never bump it to the bottom of a busy channel."""
     if not BOT_TOKEN:
         return True
-    r = requests.put(
-        f"{DISCORD_API}/channels/{channel_id}/pins/{message_id}",
+    r = _discord_request(
+        "PUT", f"{DISCORD_API}/channels/{channel_id}/pins/{message_id}",
         headers={"Authorization": f"Bot {BOT_TOKEN}"},
-        timeout=10,
     )
     if r.status_code not in (200, 204):
         print(f"Discord pin failed: {r.status_code} {r.text[:200]}")
@@ -219,10 +239,9 @@ def pin_discord(channel_id: str, message_id: str) -> bool:
 def delete_discord(channel_id: str, message_id: str) -> bool:
     if not BOT_TOKEN:
         return True
-    r = requests.delete(
-        f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+    r = _discord_request(
+        "DELETE", f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
         headers={"Authorization": f"Bot {BOT_TOKEN}"},
-        timeout=10,
     )
     if r.status_code not in (200, 204):
         print(f"Discord delete failed: {r.status_code} {r.text[:200]}")
