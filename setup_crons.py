@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Schedule wc-watcher crons for a given set of ESPN game IDs.
+Schedule world-cup-watcher crons for a given set of ESPN game IDs.
 Fetches kickoff times from ESPN, converts to server local time, and writes crontab entries.
 
 Usage:

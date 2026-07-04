@@ -1,4 +1,4 @@
-# wc-watcher
+# world-cup-watcher
 
 A live World Cup match tracker that posts a continuously-updating scoreboard to a Discord channel by polling ESPN's public API.
 
