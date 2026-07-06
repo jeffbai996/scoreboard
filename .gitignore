@@ -4,3 +4,4 @@ __pycache__/
 *.log
 venv/
 completed/
+schedule_snapshot.json

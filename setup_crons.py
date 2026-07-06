@@ -9,6 +9,7 @@ Usage:
 Example:
   python3 setup_crons.py YOUR_DISCORD_CHANNEL_ID 760490 760491 760492
 """
+import json
 import os
 import sys
 import subprocess
@@ -20,6 +21,28 @@ MINUTES_BEFORE = 5  # fire cron this many minutes before kickoff
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LAUNCH_SCRIPT = os.path.join(SCRIPT_DIR, "launch_watcher.sh")
+# Snapshot of kickoff times AS USED to build the actual crontab. This is the
+# ground truth once a cron is installed — ESPN's scoreboard API has been
+# observed to return different kickoff data for the same game_id at different
+# query times (2026-07-05: two manual checks both said England-Mexico kicked
+# off 00:00Z/5pm PDT; the cron that actually got installed, from a separate
+# run of this script, used 01:00Z/6pm — which was correct). Re-querying ESPN
+# to "verify" an already-armed cron can therefore report a false discrepancy
+# against stale/inconsistent upstream data. Always diff against THIS file,
+# not a fresh API call, when checking whether an installed cron is right.
+SCHEDULE_SNAPSHOT = os.path.join(SCRIPT_DIR, "schedule_snapshot.json")
+
+
+def load_snapshot() -> dict:
+    if os.path.exists(SCHEDULE_SNAPSHOT):
+        with open(SCHEDULE_SNAPSHOT) as f:
+            return json.load(f)
+    return {}
+
+
+def save_snapshot(snapshot: dict) -> None:
+    with open(SCHEDULE_SNAPSHOT, "w") as f:
+        json.dump(snapshot, f, indent=2, sort_keys=True)
 
 
 def fetch_kickoff(game_id: str) -> tuple[datetime, str]:
@@ -62,6 +85,7 @@ def main() -> None:
     tz_name = f"UTC{local_offset:+d}" if local_offset != 0 else "UTC"
     print(f"Server local timezone detected: {tz_name}")
 
+    snapshot = load_snapshot()
     new_entries = []
     for gid in game_ids:
         try:
@@ -70,6 +94,13 @@ def main() -> None:
             fire_time = kickoff_local - timedelta(minutes=MINUTES_BEFORE)
             line = to_cron(fire_time, gid, channel_id)
             new_entries.append((gid, name, kickoff_local, fire_time, line))
+            snapshot[str(gid)] = {
+                "name": name,
+                "kickoff_utc": kickoff_utc.isoformat(),
+                "channel_id": channel_id,
+                "cron_line": line,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
             print(f"  {gid}  {name}")
             print(f"         kickoff: {kickoff_local.strftime('%Y-%m-%d %H:%M')} {tz_name}")
             print(f"         cron fires: {fire_time.strftime('%H:%M')} → {line}")
@@ -98,6 +129,8 @@ def main() -> None:
     proc = subprocess.run(["crontab", "-"], input=new_crontab, text=True)
     if proc.returncode == 0:
         print(f"\nCrontab updated. {len(new_entries)} game(s) scheduled.")
+        save_snapshot(snapshot)
+        print(f"Schedule snapshot written to {SCHEDULE_SNAPSHOT}")
     else:
         print("ERROR: crontab -  failed")
         sys.exit(1)
