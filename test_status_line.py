@@ -80,3 +80,33 @@ def test_status_lookup_is_underscore_insensitive():
     b = _status_line("AET-pens", "STATUS_END_OF_EXTRATIME", lang=1)
     # both are ET-end states; neither should show raw English
     assert "Extratime" not in a and "Extratime" not in b
+
+
+# --- Shootout pens must NOT count as scoreboard goals (Jeff 2026-07-07) ---
+# ESPN sends each scored shootout pen as a details entry with
+# scoringPlay=True AND shootout=True, all at clock "120'". Those were leaking
+# into the GOALS section (and firing GOAL! posts). A real match goal has no
+# shootout flag. _is_match_goal is the single predicate that separates them.
+from wc_watcher import _is_match_goal
+
+
+def test_shootout_pen_is_not_a_match_goal():
+    pen = {"scoringPlay": True, "shootout": True, "penaltyKick": True,
+           "clock": {"displayValue": "120'"}}
+    assert _is_match_goal(pen) is False
+
+
+def test_open_play_goal_is_a_match_goal():
+    goal = {"scoringPlay": True, "clock": {"displayValue": "67'"}}
+    assert _is_match_goal(goal) is True
+
+
+def test_in_game_penalty_goal_still_counts():
+    # A penalty awarded DURING regulation/ET (not the shootout) is a real goal.
+    pk = {"scoringPlay": True, "penaltyKick": True, "clock": {"displayValue": "78'"}}
+    assert _is_match_goal(pk) is True
+
+
+def test_non_scoring_detail_is_not_a_goal():
+    card = {"yellowCard": True, "clock": {"displayValue": "51'"}}
+    assert _is_match_goal(card) is False

@@ -687,6 +687,16 @@ PENALTY_STATES = (
 )
 
 
+def _is_match_goal(detail: dict) -> bool:
+    """True for a real match goal (open play, own goal, or an in-game penalty),
+    False for shootout pens and non-scoring events. ESPN sends each scored
+    shootout pen as a scoringPlay detail flagged shootout=True (all at "120'") —
+    those belong in the shootout dot-grid, not the GOALS list, and shouldn't fire
+    a GOAL! post (Jeff 2026-07-07: pens clog the scoreboard). An in-game penalty
+    (penaltyKick without the shootout flag) is still a real goal."""
+    return bool(detail.get("scoringPlay")) and not detail.get("shootout")
+
+
 def _pen_board_lines(pen_shots: list, home: str, away: str, lang: int) -> list[str]:
     """Render an X/O shootout grid for the scoreboard.
 
@@ -997,7 +1007,7 @@ def build_notebook(
             "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
             "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
         }
-        for d in details if d.get("scoringPlay")
+        for d in details if _is_match_goal(d)
     ]
     cards = [
         {
@@ -1078,7 +1088,6 @@ def main():
         return mid
 
     pen_shots: list = []        # shootout data from summary; populated once penalties start
-    _pen_announced: set = set() # (team, shotNumber) tuples we've already posted
     scoreboard_msg_id: str | None = None
     # Bumped every time something else gets posted to the channel — if it's
     # nonzero when we reach the scoreboard step, the old scoreboard message
@@ -1197,7 +1206,7 @@ def main():
                 "team": team_id_map.get(d.get("team", {}).get("id", ""), "?"),
                 "type": ("OWN GOAL" if d.get("ownGoal") else "pen." if d.get("penaltyKick") else "goal"),
             }
-            for d in details if d.get("scoringPlay")
+            for d in details if _is_match_goal(d)
         ]
         cards_list = [
             {
@@ -1307,7 +1316,7 @@ def main():
         occurrence_seen_this_poll: dict = {}
         for detail in details:
             player = _scorer_name(detail)
-            kind = "goal" if detail.get("scoringPlay") else "red" if detail.get("redCard") else "yellow" if detail.get("yellowCard") else "other"
+            kind = "goal" if _is_match_goal(detail) else "red" if detail.get("redCard") else "yellow" if detail.get("yellowCard") else "other"
             key = (kind, _participant_athlete_id(detail), detail.get("team", {}).get("id", ""))
             occurrence = occurrence_seen_this_poll.get(key, 0)
             occurrence_seen_this_poll[key] = occurrence + 1
@@ -1320,7 +1329,7 @@ def main():
             detail_team = team_id_map.get(detail.get("team", {}).get("id", ""), "")
             emoji = team_emoji(detail_team)
 
-            if detail.get("scoringPlay"):
+            if _is_match_goal(detail):
                 own = " (OWN GOAL)" if detail.get("ownGoal") else ""
                 pk = " (pen.)" if detail.get("penaltyKick") else ""
                 # ESPN's competitors[].score lags the details feed by a poll or
@@ -1330,7 +1339,7 @@ def main():
                 # consistent with what just triggered this announcement.
                 goals_so_far = {home_name: 0, away_name: 0}
                 for d in details:
-                    if d.get("scoringPlay"):
+                    if _is_match_goal(d):
                         t = team_id_map.get(d.get("team", {}).get("id", ""), "")
                         if t in goals_so_far:
                             goals_so_far[t] += 1
@@ -1371,31 +1380,14 @@ def main():
             stat_map = {s["name"]: s.get("displayValue", "?") for s in box.get("statistics", [])}
             stats[tname] = stat_map
 
-        # Penalty shootout data — populated from summary once we're in a pen state
+        # Penalty shootout data — populated from summary once we're in a pen
+        # state. This feeds the scoreboard's live shootout dot-grid; individual
+        # kicks are NOT posted as separate messages (Jeff 2026-07-07: the live
+        # scoreboard grid is enough, per-pen printouts just clog the channel).
         if current_state in PENALTY_STATES or pen_shots:
             raw_shootout = summary.get("shootout", [])
             if raw_shootout:
                 pen_shots = raw_shootout
-
-        # Announce individual penalty kicks as they land (goal or save)
-        if pen_shots:
-            home_e_p, away_e_p = team_emoji(home_name), team_emoji(away_name)
-            for block in pen_shots:
-                team_key = block["team"]
-                t_emoji = home_e_p if team_key == home_name else away_e_p
-                t_disp = team_name(team_key, current_scoreboard_lang(watcher_start))
-                for sh in block.get("shots", []):
-                    key = (team_key, sh["shotNumber"])
-                    if key in _pen_announced:
-                        continue
-                    _pen_announced.add(key)
-                    p = sh.get("player", "?")
-                    n = sh["shotNumber"]
-                    if sh.get("didScore"):
-                        _post(f"🟢 **Pen #{n}** {t_emoji} {t_disp} — {p} **SCORES**")
-                    else:
-                        _post(f"🔴 **Pen #{n}** {t_emoji} {t_disp} — {p} **SAVED/MISSED**")
-                    scoreboard_buried_by += 1
 
         for item in commentary:
             seq = item.get("sequence", -1)
