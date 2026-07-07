@@ -564,7 +564,9 @@ _STATUS_LABELS = {
     "STATUS_FINAL_PEN": ("Final (pens)", "点球决出"),    # post-match final-pen result
     # AET end states — ESPN emits descriptive text ("AET", "AET-Pens") in the
     # detail field for these, not a clock. Map them so the fallback never fires.
-    "STATUS_END_OF_EXTRA_TIME": ("Full time (AET)", "加时结束"),
+    # ESPN also spells this "STATUS_END_OF_EXTRATIME" (one word) — the
+    # underscore-insensitive lookup below catches that variant too.
+    "STATUS_END_OF_EXTRA_TIME": ("End of ET · Penalties", "加时结束 · 点球大战"),
     "STATUS_AET": ("Full time (AET)", "加时结束"),
     "STATUS_AET_PENS": ("Penalties", "点球大战"),    # AET → pens transition state
     "STATUS_SCHEDULED": ("Sched.", "未开始"),
@@ -573,6 +575,28 @@ _STATUS_LABELS = {
     "STATUS_POSTPONED": ("Postponed", "推迟"),
     "STATUS_ABANDONED": ("Abandoned", "终止"),
 }
+
+# ESPN is inconsistent about underscores in status names — the same state comes
+# through as both "STATUS_END_OF_EXTRA_TIME" and "STATUS_END_OF_EXTRATIME"
+# (EXTRATIME, one word), and we've seen OVER_TIME/OVERTIME too. A verbatim dict
+# lookup misses the variant and leaks an untranslated English fallback onto the
+# Chinese board. Index the labels by a canonical form (drop STATUS_, strip all
+# underscores, uppercase) so any spelling of the same words resolves. Verbatim
+# lookup is tried first; this is the fallback before the .title() fallback.
+_STATUS_LABELS_NORM = {
+    k.replace("STATUS_", "").replace("_", "").upper(): v
+    for k, v in _STATUS_LABELS.items()
+}
+
+
+def _status_labels_for(status: str) -> tuple[str, str] | None:
+    """Resolve a status code to its (en, zh) label, tolerating ESPN's underscore
+    spelling variants. Returns None if genuinely unmapped (caller uses the raw
+    .title() fallback then)."""
+    if status in _STATUS_LABELS:
+        return _STATUS_LABELS[status]
+    key = status.replace("STATUS_", "").replace("_", "").upper()
+    return _STATUS_LABELS_NORM.get(key)
 
 # Statuses where play has stopped for a reason worth surfacing (weather,
 # drinks break, etc) — ESPN gives no dedicated reason field, just a
@@ -741,7 +765,7 @@ def _render_board_lines(
     home_h = _short.get(home, home_disp)
     away_h = _short.get(away, away_disp)
     _fallback = status.replace("STATUS_", "").replace("_", " ").title() if status else "?"
-    status_label = _STATUS_LABELS.get(status, (_fallback, _fallback))[lang]
+    status_label = (_status_labels_for(status) or (_fallback, _fallback))[lang]
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
         "delay": ("⏸️ MATCH STOPPED", "⏸️ 比赛暂停"),
