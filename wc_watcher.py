@@ -742,15 +742,6 @@ def _render_board_lines(
     away_h = _short.get(away, away_disp)
     _fallback = status.replace("STATUS_", "").replace("_", " ").title() if status else "?"
     status_label = _STATUS_LABELS.get(status, (_fallback, _fallback))[lang]
-    no_clock_states = (
-        "STATUS_HALFTIME", "STATUS_FULL_TIME", "STATUS_FINAL",
-        "STATUS_FINAL_PEN",
-        # ESPN's detail field for these statuses is descriptive text ("Penalties",
-        # "AET", "FT-Pens"), not a clock — don't show it as a clock.
-        "STATUS_SHOOTOUT", "STATUS_PENALTY", "STATUS_PENALTY_KICKS",
-        "STATUS_END_OF_REGULATION",
-        "STATUS_END_OF_EXTRA_TIME", "STATUS_AET", "STATUS_AET_PENS",
-    )
     headers = {
         "var": ("⏳ VAR REVIEW", "⏳ VAR 审查中"),
         "delay": ("⏸️ MATCH STOPPED", "⏸️ 比赛暂停"),
@@ -774,7 +765,14 @@ def _render_board_lines(
         score_line = f"{h_score}({home_pen}) – {a_score}({away_pen})"
     else:
         score_line = f"{h_score} - {a_score}"
-    clock_str = f" {clock}" if clock and status not in no_clock_states else ""
+    # Only append `clock` when ESPN's detail is an actual clock/kickoff time,
+    # i.e. it contains a digit ("53'", "90'+3'", "7:00 PM ET"). Break/end
+    # statuses (halftime, ET halftime, penalties, AET) put descriptive English
+    # text in `detail` ("Extra Time Halftime", "Penalties") — suppress it, since
+    # the translated status_label already names the state. Digit-check kills the
+    # whole class of "raw English detail leaks past the label" bugs, replacing a
+    # hand-maintained denylist that kept missing new ESPN status codes.
+    clock_str = f" {clock}" if clock and any(c.isdigit() for c in clock) else ""
     lines = [
         _divider("═"),
         _center(f"{home_e} {home_h} vs {away_h} {away_e}"),
